@@ -2,8 +2,18 @@ import { useRouter } from "expo-router";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { auth, db } from "../../lib/firebase";
+// Importamos los estilos maestros
+import { styles } from "./auth.styles";
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState("");
@@ -19,8 +29,6 @@ export default function RegisterScreen() {
         email,
         password,
       );
-
-      // Crear perfil en Firestore
       await setDoc(doc(db, "users", user.uid), {
         nombre,
         semestre,
@@ -29,7 +37,6 @@ export default function RegisterScreen() {
         nivel: 1,
         creadoEn: new Date(),
       });
-
       router.replace("/(tabs)");
     } catch (e: any) {
       console.error(e.message);
@@ -37,77 +44,78 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", padding: 24 }}>
-      <TextInput
-        placeholder="Nombre"
-        onChangeText={setNombre}
-        style={{
-          borderWidth: 2,
-          borderColor: "gray",
-          marginBottom: 12,
-          padding: 8,
-        }}
-      />
-      <TextInput
-        placeholder="Semestre (ej: 8)"
-        onChangeText={setSemestre}
-        keyboardType="numeric"
-        style={{
-          borderWidth: 2,
-          borderColor: "gray",
-          marginBottom: 12,
-          padding: 8,
-        }}
-      />
-      <TextInput
-        placeholder="Correo"
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        style={{
-          borderWidth: 2,
-          borderColor: "gray",
-          marginBottom: 12,
-          padding: 8,
-        }}
-      />
-      <TextInput
-        placeholder="Contraseña"
-        onChangeText={setPassword}
-        secureTextEntry
-        style={{
-          borderWidth: 2,
-          borderColor: "gray",
-          marginBottom: 12,
-          padding: 8,
-        }}
-      />
-      <Pressable
-        onPress={handleRegister}
-        style={({ pressed }) => ({
-          backgroundColor: pressed ? "#1d4ed8" : "#2563eb",
-          paddingVertical: 12,
-          borderRadius: 8,
-          alignItems: "center",
-        })}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.container}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
       >
-        <Text style={{ color: "white", fontWeight: "600" }}>Crear cuenta</Text>
-      </Pressable>
-      <Pressable
-        onPress={() => router.push("/(auth)/login")}
-        style={({ pressed }) => ({
-          marginTop: 12,
-          paddingVertical: 12,
-          borderRadius: 8,
-          alignItems: "center",
-          borderWidth: 1,
-          borderColor: pressed ? "#2563eb" : "#93c5fd",
-          backgroundColor: pressed ? "#eff6ff" : "transparent",
-        })}
-      >
-        <Text style={{ color: "#2563eb", fontWeight: "600" }}>
-          Ya tengo cuenta
-        </Text>
-      </Pressable>
-    </View>
+        <View style={styles.formSection}>
+          <Text style={styles.title}>Regístrate</Text>
+          <Text style={styles.subtitle}>
+            Comienza a gestionar tu estrés hoy
+          </Text>
+
+          <TextInput
+            placeholder="Nombre completo"
+            onChangeText={setNombre}
+            style={styles.input}
+            placeholderTextColor="#9ca3af"
+          />
+
+          <TextInput
+            placeholder="Semestre (ej: 8)"
+            onChangeText={setSemestre}
+            keyboardType="numeric"
+            style={styles.input}
+            placeholderTextColor="#9ca3af"
+          />
+
+          <TextInput
+            placeholder="Correo electrónico"
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            style={styles.input}
+            placeholderTextColor="#9ca3af"
+          />
+
+          <TextInput
+            placeholder="Contraseña"
+            onChangeText={setPassword}
+            secureTextEntry
+            style={styles.input}
+            placeholderTextColor="#9ca3af"
+          />
+        </View>
+
+        <View style={styles.buttonSection}>
+          <Pressable
+            onPress={handleRegister}
+            style={({ pressed }) => [
+              styles.buttonPrimary,
+              { backgroundColor: pressed ? "#1d4ed8" : "#2563eb" },
+            ]}
+          >
+            <Text style={styles.buttonPrimaryText}>Crear cuenta</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/(auth)/login")}
+            style={({ pressed }) => [
+              styles.buttonSecondary,
+              {
+                borderColor: pressed ? "#2563eb" : "#93c5fd",
+                backgroundColor: pressed ? "#eff6ff" : "transparent",
+              },
+            ]}
+          >
+            <Text style={styles.buttonSecondaryText}>Ya tengo una cuenta</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }

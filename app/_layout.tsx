@@ -1,4 +1,4 @@
-import { Slot, useRouter, useSegments } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useEffect } from "react";
@@ -30,13 +30,13 @@ export default function RootLayout() {
         // Redirigir al Home
         router.replace("/(tabs)");
       } else {
-        // No hay sesión, ir al login
-        router.replace("/(auth)/login");
+        // No hay sesión, ir al index de login
+        router.replace("/");
       }
     });
 
     return unsub;
   }, []);
 
-  return <Slot />;
+  return <Stack screenOptions={{ headerShown: false }} />;
 }
