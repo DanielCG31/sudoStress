@@ -1,118 +1,54 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { signOut } from "firebase/auth";
-import {
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    updateDoc,
-} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { LineChart } from "react-native-gifted-charts";
-import { auth, db } from "../../lib/firebase";
-
-type Perfil = {
-  nombre: string;
-  semestre: string;
-  xp: number;
-  nivel: number;
-  monedas: number;
-};
-
-type Checkin = {
-  fecha: string;
-  nivelEstres: number;
-};
+import {
+  actualizarPerfil,
+  obtenerHistorialEstres,
+  obtenerPerfil,
+} from "../../lib/services/perfilService";
+import { useAuthStore } from "../../store/useAuthStore";
 
 type Logro = {
-  id: string;
-  titulo: string;
+  id: number;
+  nombre: string;
   descripcion: string;
-  emoji: string;
-  desbloqueado: boolean;
-  condicion: (datos: {
-    checkins: Checkin[];
-    misionesCompletadas: number;
-    xp: number;
-  }) => boolean;
+  icono: string;
+  obtenido_at?: string;
 };
 
-const LOGROS: Omit<Logro, "desbloqueado">[] = [
-  {
-    id: "primer_checkin",
-    titulo: "Primer paso",
-    descripcion: "Haz tu primer check-in de estrés",
-    emoji: "🌱",
-    condicion: ({ checkins }) => checkins.length >= 1,
-  },
-  {
-    id: "semana_completa",
-    titulo: "Semana completa",
-    descripcion: "Haz check-in 7 días seguidos",
-    emoji: "🔥",
-    condicion: ({ checkins }) => checkins.length >= 7,
-  },
-  {
-    id: "primer_mision",
-    titulo: "Misionero",
-    descripcion: "Completa tu primera misión",
-    emoji: "🎯",
-    condicion: ({ misionesCompletadas }) => misionesCompletadas >= 1,
-  },
-  {
-    id: "cinco_misiones",
-    titulo: "En racha",
-    descripcion: "Completa 5 misiones",
-    emoji: "⚡",
-    condicion: ({ misionesCompletadas }) => misionesCompletadas >= 5,
-  },
-  {
-    id: "diez_misiones",
-    titulo: "Imparable",
-    descripcion: "Completa 10 misiones",
-    emoji: "🏆",
-    condicion: ({ misionesCompletadas }) => misionesCompletadas >= 10,
-  },
-  {
-    id: "nivel_5",
-    titulo: "Subiendo",
-    descripcion: "Llega al nivel 5",
-    emoji: "🚀",
-    condicion: ({ xp }) => xp >= 400,
-  },
-  {
-    id: "nivel_10",
-    titulo: "Veterano",
-    descripcion: "Llega al nivel 10",
-    emoji: "👑",
-    condicion: ({ xp }) => xp >= 900,
-  },
-  {
-    id: "zen",
-    titulo: "Zen",
-    descripcion: "Registra estrés menor a 3 por 3 días",
-    emoji: "🧘",
-    condicion: ({ checkins }) => {
-      const bajos = checkins.filter((c) => c.nivelEstres <= 3);
-      return bajos.length >= 3;
-    },
-  },
-];
+type Estadisticas = {
+  misiones: {
+    completadas: number;
+    pendientes: number;
+    xp_ganado: number;
+    racha_dias: number;
+  };
+  tareas: {
+    completadas: number;
+    pendientes: number;
+  };
+  estres: {
+    promedio_semana: number;
+    total_checkins: number;
+  };
+};
+
+type GraficaPoint = {
+  fecha: string;
+  nivel: number;
+};
 
 const getColorNivel = (nivel: number) => {
   if (nivel < 3) return "#10B981";
@@ -122,14 +58,17 @@ const getColorNivel = (nivel: number) => {
 };
 
 export default function PerfilScreen() {
-  const [perfil, setPerfil] = useState<Perfil | null>(null);
-  const [checkins, setCheckins] = useState<Checkin[]>([]);
-  const [misionesCompletadas, setMisionesCompletadas] = useState(0);
-  const [logros, setLogros] = useState<Logro[]>([]);
+  const { user, logout } = useAuthStore();
+  const [estadisticas, setEstadisticas] = useState<Estadisticas | null>(null);
+  const [logrosObtenidos, setLogrosObtenidos] = useState<Logro[]>([]);
+  const [totalLogros, setTotalLogros] = useState(0);
+  const [grafica, setGrafica] = useState<GraficaPoint[]>([]);
+  const [promedioEstres, setPromedioEstres] = useState<string>("—");
   const [cargando, setCargando] = useState(true);
   const [modalEditar, setModalEditar] = useState(false);
-  const [nuevoNombre, setNuevoNombre] = useState("");
-  const [nuevoSemestre, setNuevoSemestre] = useState("");
+  const [nuevoNombre, setNuevoNombre] = useState(user?.name ?? "");
+  const [nuevoSemestre, setNuevoSemestre] = useState(user?.semestre ?? "");
+  const [guardandoPerfil, setGuardandoPerfil] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -137,49 +76,39 @@ export default function PerfilScreen() {
   }, []);
 
   const cargarDatos = async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
     try {
-      // Perfil
-      const perfilDoc = await getDoc(doc(db, "users", uid));
-      const perfilData = perfilDoc.data() as Perfil;
-      setPerfil(perfilData);
-      setNuevoNombre(perfilData.nombre);
-      setNuevoSemestre(perfilData.semestre);
+      const [perfilRes, historialRes] = await Promise.all([
+        obtenerPerfil(),
+        obtenerHistorialEstres(7),
+      ]);
 
-      // Checkins últimos 7 días
-      const checkinsSnap = await getDocs(
-        query(
-          collection(db, "users", uid, "checkins"),
-          orderBy("fecha", "desc"),
-          limit(7),
-        ),
+      // Actualizar store con datos frescos
+      if (perfilRes.perfil) {
+        useAuthStore.setState((state) => ({
+          user: state.user
+            ? {
+                ...state.user,
+                name: perfilRes.perfil.name,
+                semestre: perfilRes.perfil.semestre,
+                nivel: perfilRes.perfil.nivel,
+                xp: perfilRes.perfil.xp,
+                monedas: perfilRes.perfil.monedas,
+              }
+            : state.user,
+        }));
+      }
+
+      setEstadisticas(perfilRes.estadisticas);
+      setLogrosObtenidos(perfilRes.logros?.obtenidos ?? []);
+      setTotalLogros(perfilRes.logros?.total_disponibles ?? 0);
+
+      // Gráfica
+      setGrafica(historialRes.grafica ?? []);
+      setPromedioEstres(
+        historialRes.resumen?.promedio
+          ? String(historialRes.resumen.promedio)
+          : "—",
       );
-      const checkinsData = checkinsSnap.docs
-        .map((d) => d.data() as Checkin)
-        .reverse();
-      setCheckins(checkinsData);
-
-      // Misiones completadas
-      const misionesSnap = await getDocs(
-        collection(db, "users", uid, "misiones"),
-      );
-      const completadas = misionesSnap.docs.filter(
-        (d) => d.data().completada,
-      ).length;
-      setMisionesCompletadas(completadas);
-
-      // Evaluar logros
-      const datos = {
-        checkins: checkinsData,
-        misionesCompletadas: completadas,
-        xp: perfilData.xp,
-      };
-      const logrosEvaluados = LOGROS.map((l) => ({
-        ...l,
-        desbloqueado: l.condicion(datos),
-      }));
-      setLogros(logrosEvaluados);
     } catch (e) {
       console.error(e);
     } finally {
@@ -188,19 +117,26 @@ export default function PerfilScreen() {
   };
 
   const guardarPerfil = async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
+    setGuardandoPerfil(true);
     try {
-      await updateDoc(doc(db, "users", uid), {
-        nombre: nuevoNombre.trim(),
+      await actualizarPerfil({
+        name: nuevoNombre.trim(),
         semestre: nuevoSemestre.trim(),
       });
-      setPerfil((prev) =>
-        prev ? { ...prev, nombre: nuevoNombre, semestre: nuevoSemestre } : prev,
-      );
+      useAuthStore.setState((state) => ({
+        user: state.user
+          ? {
+              ...state.user,
+              name: nuevoNombre.trim(),
+              semestre: nuevoSemestre.trim(),
+            }
+          : state.user,
+      }));
       setModalEditar(false);
     } catch (e) {
       console.error(e);
+    } finally {
+      setGuardandoPerfil(false);
     }
   };
 
@@ -211,7 +147,7 @@ export default function PerfilScreen() {
         text: "Salir",
         style: "destructive",
         onPress: async () => {
-          await signOut(auth);
+          await logout();
           router.replace("/(auth)/login");
         },
       },
@@ -219,20 +155,14 @@ export default function PerfilScreen() {
   };
 
   // Datos para la gráfica
-  const datosGrafica = checkins.map((c) => ({
-    value: c.nivelEstres,
-    label: c.fecha.slice(5), // "04-11"
-    dataPointColor: getColorNivel(c.nivelEstres),
+  const datosGrafica = grafica.map((c) => ({
+    value: c.nivel,
+    label: c.fecha,
+    dataPointColor: getColorNivel(c.nivel),
   }));
 
-  const promedioEstres = checkins.length
-    ? (
-        checkins.reduce((acc, c) => acc + c.nivelEstres, 0) / checkins.length
-      ).toFixed(1)
-    : "—";
-
-  const xpParaSiguienteNivel = perfil ? perfil.nivel * 100 - perfil.xp : 0;
-  const progresoNivel = perfil ? ((perfil.xp % 100) / 100) * 100 : 0;
+  const xpParaSiguienteNivel = user ? user.nivel * 100 : 100;
+  const progresoNivel = user ? ((user.xp % 100) / 100) * 100 : 0;
 
   if (cargando) {
     return (
@@ -251,19 +181,15 @@ export default function PerfilScreen() {
       <View style={styles.headerCard}>
         <View style={styles.avatarCirculo}>
           <Text style={styles.avatarLetra}>
-            {perfil?.nombre?.charAt(0).toUpperCase() ?? "?"}
+            {user?.name?.charAt(0).toUpperCase() ?? "?"}
           </Text>
         </View>
         <View style={styles.headerInfo}>
-          <Text style={styles.nombreTexto}>
-            {perfil?.nombre || "Sin nombre"}
-          </Text>
+          <Text style={styles.nombreTexto}>{user?.name || "Sin nombre"}</Text>
           <Text style={styles.semestreTexto}>
-            {perfil?.semestre
-              ? `Semestre ${perfil.semestre}`
-              : "ISC — ITMatamoros"}
+            {user?.semestre ? `Semestre ${user.semestre}` : "Sin semestre"}
           </Text>
-          <Text style={styles.emailTexto}>{auth.currentUser?.email}</Text>
+          <Text style={styles.emailTexto}>🪙 {user?.monedas ?? 0} monedas</Text>
         </View>
         <Pressable
           onPress={() => setModalEditar(true)}
@@ -276,97 +202,84 @@ export default function PerfilScreen() {
       {/* Nivel y XP */}
       <View style={styles.card}>
         <View style={styles.nivelRow}>
-          <Text style={styles.cardTitulo}>Nivel {perfil?.nivel ?? 1}</Text>
-          <Text style={styles.xpTexto}>⭐ {perfil?.xp ?? 0} XP</Text>
+          <Text style={styles.cardTitulo}>Nivel {user?.nivel ?? 1}</Text>
+          <Text style={styles.xpTexto}>⭐ {user?.xp ?? 0} XP</Text>
         </View>
-        {/* Barra de progreso */}
         <View style={styles.barraFondo}>
           <View
             style={[styles.barraProgreso, { width: `${progresoNivel}%` }]}
           />
         </View>
         <Text style={styles.xpFaltante}>
-          {xpParaSiguienteNivel > 0
-            ? `Faltan ${xpParaSiguienteNivel} XP para el nivel ${(perfil?.nivel ?? 1) + 1}`
-            : "¡Nivel máximo!"}
+          {xpParaSiguienteNivel - (user?.xp ?? 0)} XP para el siguiente nivel
         </Text>
       </View>
 
-      {/* Stats rápidas */}
+      {/* Stats */}
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
-          <Text style={styles.statNumero}>{checkins.length}</Text>
-          <Text style={styles.statLabel}>Check-ins</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumero}>{misionesCompletadas}</Text>
-          <Text style={styles.statLabel}>Misiones</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text
-            style={[
-              styles.statNumero,
-              {
-                color: getColorNivel(parseFloat(promedioEstres as string) || 0),
-              },
-            ]}
-          >
-            {promedioEstres}
+          <Text style={styles.statNumero}>
+            {estadisticas?.misiones.completadas ?? 0}
           </Text>
-          <Text style={styles.statLabel}>Estrés prom.</Text>
+          <Text style={styles.statLabel}>Misiones{"\n"}completadas</Text>
         </View>
         <View style={styles.statCard}>
           <Text style={styles.statNumero}>
-            {logros.filter((l) => l.desbloqueado).length}
+            {estadisticas?.tareas.completadas ?? 0}
           </Text>
-          <Text style={styles.statLabel}>Logros</Text>
+          <Text style={styles.statLabel}>Tareas{"\n"}completadas</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statNumero}>
+            {estadisticas?.misiones.racha_dias ?? 0}
+          </Text>
+          <Text style={styles.statLabel}>Días de{"\n"}racha 🔥</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statNumero}>{promedioEstres}</Text>
+          <Text style={styles.statLabel}>Promedio{"\n"}de estrés</Text>
         </View>
       </View>
 
       {/* Gráfica de estrés */}
       <View style={styles.card}>
         <Text style={styles.cardTitulo}>📊 Estrés últimos 7 días</Text>
-        {checkins.length < 2 ? (
+        {datosGrafica.length === 0 ? (
           <View style={styles.graficaVacia}>
             <Text style={styles.graficaVaciaTexto}>
-              Necesitas al menos 2 check-ins para ver la gráfica
+              Haz tu primer check-in para ver la gráfica 📈
             </Text>
           </View>
         ) : (
           <LineChart
             data={datosGrafica}
-            width={280}
-            height={160}
-            maxValue={10}
-            noOfSections={5}
+            height={120}
+            spacing={44}
             color="#7C3AED"
             thickness={2}
             startFillColor="#EDE9FE"
             endFillColor="#F5F3FF"
             areaChart
-            curved
             hideDataPoints={false}
             dataPointsColor="#7C3AED"
-            dataPointsRadius={4}
-            xAxisLabelTextStyle={{ color: "#9CA3AF", fontSize: 10 }}
+            maxValue={10}
+            noOfSections={5}
             yAxisTextStyle={{ color: "#9CA3AF", fontSize: 10 }}
-            yAxisColor="transparent"
-            xAxisColor="#E5E7EB"
+            xAxisLabelTextStyle={{ color: "#9CA3AF", fontSize: 10 }}
+            hideRules={false}
             rulesColor="#F3F4F6"
           />
         )}
       </View>
 
-      {/* Historial check-ins */}
+      {/* Historial de checkins */}
       <View style={styles.card}>
         <Text style={styles.cardTitulo}>📅 Historial de check-ins</Text>
-        {checkins.length === 0 ? (
-          <Text style={styles.sinDatos}>
-            Aún no tienes check-ins registrados
-          </Text>
+        {grafica.length === 0 ? (
+          <Text style={styles.sinDatos}>Sin check-ins registrados aún</Text>
         ) : (
-          [...checkins].reverse().map((c, i) => {
-            const color = getColorNivel(c.nivelEstres);
+          grafica.map((c, i) => {
+            const color = getColorNivel(c.nivel);
             return (
               <View key={i} style={styles.checkinItem}>
                 <View style={[styles.checkinDot, { backgroundColor: color }]} />
@@ -378,7 +291,7 @@ export default function PerfilScreen() {
                   ]}
                 >
                   <Text style={[styles.checkinNivel, { color }]}>
-                    Nivel {c.nivelEstres}/10
+                    Nivel {c.nivel}/10
                   </Text>
                 </View>
               </View>
@@ -389,37 +302,29 @@ export default function PerfilScreen() {
 
       {/* Logros */}
       <View style={styles.card}>
-        <Text style={styles.cardTitulo}>🏆 Logros</Text>
+        <Text style={styles.cardTitulo}>
+          🏆 Logros ({logrosObtenidos.length}/{totalLogros})
+        </Text>
         <View style={styles.logrosGrid}>
-          {logros.map((logro) => (
-            <View
-              key={logro.id}
-              style={[
-                styles.logroCard,
-                !logro.desbloqueado && styles.logroBloqueado,
-              ]}
-            >
-              <Text style={styles.logroEmoji}>
-                {logro.desbloqueado ? logro.emoji : "🔒"}
-              </Text>
-              <Text
-                style={[
-                  styles.logroTitulo,
-                  !logro.desbloqueado && styles.logroTextoGris,
-                ]}
-              >
-                {logro.titulo}
-              </Text>
-              <Text
-                style={[
-                  styles.logroDesc,
-                  !logro.desbloqueado && styles.logroTextoGris,
-                ]}
-              >
-                {logro.descripcion}
-              </Text>
+          {logrosObtenidos.map((logro) => (
+            <View key={logro.id} style={styles.logroCard}>
+              <Text style={styles.logroEmoji}>{logro.icono}</Text>
+              <Text style={styles.logroTitulo}>{logro.nombre}</Text>
+              <Text style={styles.logroDesc}>{logro.descripcion}</Text>
             </View>
           ))}
+          {/* Mostrar cuántos faltan */}
+          {totalLogros - logrosObtenidos.length > 0 && (
+            <View style={[styles.logroCard, styles.logroBloqueado]}>
+              <Text style={styles.logroEmoji}>🔒</Text>
+              <Text style={[styles.logroTitulo, styles.logroTextoGris]}>
+                +{totalLogros - logrosObtenidos.length} por desbloquear
+              </Text>
+              <Text style={[styles.logroDesc, styles.logroTextoGris]}>
+                Sigue completando misiones
+              </Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -461,8 +366,17 @@ export default function PerfilScreen() {
               >
                 <Text style={styles.botonCancelarTexto}>Cancelar</Text>
               </Pressable>
-              <Pressable style={styles.botonGuardar} onPress={guardarPerfil}>
-                <Text style={styles.botonGuardarTexto}>Guardar</Text>
+              <Pressable
+                style={[
+                  styles.botonGuardar,
+                  guardandoPerfil && { opacity: 0.6 },
+                ]}
+                onPress={guardarPerfil}
+                disabled={guardandoPerfil}
+              >
+                <Text style={styles.botonGuardarTexto}>
+                  {guardandoPerfil ? "Guardando..." : "Guardar"}
+                </Text>
               </Pressable>
             </View>
           </View>

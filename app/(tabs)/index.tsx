@@ -1,15 +1,5 @@
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import Slider from "@react-native-community/slider";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  setDoc,
-  where,
-} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -19,9 +9,13 @@ import {
   Text,
   View,
 } from "react-native";
-import { auth, db } from "../../lib/firebase";
+import {
+  checkinHoy,
+  registrarCheckin,
+} from "../../lib/services/checkinService";
+import { obtenerTareas } from "../../lib/services/tareaService";
+import { useAuthStore } from "../../store/useAuthStore";
 
-// Frases motivacionales
 const FRASES = [
   "Un paso a la vez. Tú puedes con esto. 💪",
   "El descanso también es productividad. 🌙",
@@ -30,7 +24,6 @@ const FRASES = [
   "No tienes que hacerlo perfecto, solo hacerlo. 🎯",
 ];
 
-// Emoji según nivel de estrés
 const getEmoji = (nivel: number) => {
   if (nivel <= 2)
     return { emoji: "😄", label: "Muy tranquilo", color: "#4CAF50" };
@@ -41,59 +34,54 @@ const getEmoji = (nivel: number) => {
   return { emoji: "😰", label: "Muy estresado", color: "#F44336" };
 };
 
-// Misión recomendada según nivel
-const getMisionRecomendada = (nivel: number) => {
-  if (nivel <= 3) return { titulo: "📚 Adelanta una tarea pendiente", xp: 30 };
-  if (nivel <= 6)
-    return { titulo: "📝 Haz una lista de tus pendientes", xp: 20 };
-  return { titulo: "🧘 Toma 10 minutos para respirar y descansar", xp: 15 };
+type Tarea = {
+  id: number;
+  titulo: string;
+  fecha_limite: string | null;
+  estado: string;
+};
+
+type CheckinData = {
+  id: number;
+  nivel_estres: number;
+} | null;
+
+type Mision = {
+  titulo: string;
+  xp_recompensa: number;
 };
 
 export default function HomeScreen() {
-  const [perfil, setPerfil] = useState<any>(null);
+  const { user } = useAuthStore();
   const [nivelEstres, setNivelEstres] = useState(5);
-  const [checkinHecho, setCheckinHecho] = useState(false);
-  const [tareasPendientes, setTareasPendientes] = useState<any[]>([]);
+  const [checkinData, setCheckinData] = useState<CheckinData>(null);
+  const [tareasPendientes, setTareasPendientes] = useState<Tarea[]>([]);
+  const [misionesIA, setMisionesIA] = useState<Mision[]>([]);
+  const [consejoIA, setConsejoIA] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
   const frase = FRASES[new Date().getDay() % FRASES.length];
-  const estadoEstres = getEmoji(nivelEstres);
-  const mision = getMisionRecomendada(checkinHecho ? nivelEstres : 5);
-  const hoy = new Date().toISOString().split("T")[0]; // "2026-04-11"
+  const estadoEstres = getEmoji(
+    checkinData ? checkinData.nivel_estres : nivelEstres,
+  );
 
   useEffect(() => {
     cargarDatos();
   }, []);
 
   const cargarDatos = async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-
     try {
-      // Cargar perfil
-      const perfilDoc = await getDoc(doc(db, "users", uid));
-      if (perfilDoc.exists()) setPerfil(perfilDoc.data());
-
-      // Verificar si ya hizo check-in hoy
-      const checkinDoc = await getDoc(doc(db, "users", uid, "checkins", hoy));
-      if (checkinDoc.exists()) {
-        setCheckinHecho(true);
-        setNivelEstres(checkinDoc.data().nivelEstres);
+      // Verificar checkin de hoy
+      const hoyRes = await checkinHoy();
+      if (hoyRes.checkin) {
+        setCheckinData(hoyRes.checkin);
+        setNivelEstres(hoyRes.checkin.nivel_estres);
       }
 
-      // Cargar tareas próximas (las 3 más cercanas sin completar)
-      const tareasRef = collection(db, "users", uid, "tareas");
-      const q = query(
-        tareasRef,
-        where("completada", "==", false),
-        orderBy("fechaEntrega"),
-        limit(3),
-      );
-      const snapshot = await getDocs(q);
-      setTareasPendientes(
-        snapshot.docs.map((d) => ({ id: d.id, ...d.data() })),
-      );
+      // Tareas próximas pendientes
+      const tareasRes = await obtenerTareas({ estado: "pendiente" });
+      setTareasPendientes(tareasRes.tareas?.slice(0, 3) ?? []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -102,24 +90,18 @@ export default function HomeScreen() {
   };
 
   const guardarCheckin = async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
     setGuardando(true);
-
     try {
-      // Guardar check-in
-      await setDoc(doc(db, "users", uid, "checkins", hoy), {
-        nivelEstres,
-        fecha: hoy,
-        creadoEn: new Date(),
-      });
+      const data = await registrarCheckin(nivelEstres);
 
-      // Dar XP al usuario por hacer el check-in
-      const xpActual = perfil?.xp ?? 0;
-      const nuevoXP = xpActual + 10;
-      await setDoc(doc(db, "users", uid), { xp: nuevoXP }, { merge: true });
-      setPerfil((prev: any) => ({ ...prev, xp: nuevoXP }));
-      setCheckinHecho(true);
+      // Actualizar datos del usuario en el store (XP puede haber cambiado)
+      if (data.checkin) {
+        setCheckinData(data.checkin);
+      }
+      if (data.misiones) setMisionesIA(data.misiones.slice(0, 1)); // mostrar la primera
+      if (data.consejo) setConsejoIA(data.consejo);
+
+      // Refrescar XP del usuario
     } catch (e) {
       console.error(e);
     } finally {
@@ -144,7 +126,12 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.saludo}>
-            Hola, {perfil?.nombre || "estudiante"} 👋
+            Hola, {user?.name || "estudiante"}{" "}
+            <MaterialCommunityIcons
+              name="human-greeting-variant"
+              size={24}
+              color="black"
+            />
           </Text>
           <Text style={styles.fecha}>
             {new Date().toLocaleDateString("es-MX", {
@@ -155,25 +142,25 @@ export default function HomeScreen() {
           </Text>
         </View>
         <View style={styles.xpBadge}>
-          <Text style={styles.xpText}>⭐ {perfil?.xp ?? 0} XP</Text>
-          <Text style={styles.nivelText}>Nivel {perfil?.nivel ?? 1}</Text>
+          <Text style={styles.xpText}>⭐ {user?.xp ?? 0} XP</Text>
+          <Text style={styles.nivelText}>Nivel {user?.nivel ?? 1}</Text>
         </View>
       </View>
 
-      {/* Frase motivacional */}
+      {/* Frase motivacional o consejo de IA */}
       <View style={styles.fraseCard}>
-        <Text style={styles.fraseTexto}>{frase}</Text>
+        <Text style={styles.fraseTexto}>{consejoIA ?? frase}</Text>
       </View>
 
       {/* Check-in de estrés */}
       <View style={styles.card}>
         <Text style={styles.cardTitulo}>¿Cómo te sientes hoy?</Text>
 
-        {checkinHecho ? (
+        {checkinData ? (
           <View style={styles.checkinHecho}>
             <Text style={styles.emojiGrande}>{estadoEstres.emoji}</Text>
             <Text style={[styles.labelEstres, { color: estadoEstres.color }]}>
-              {estadoEstres.label} — Nivel {nivelEstres}/10
+              {estadoEstres.label} — Nivel {checkinData.nivel_estres}/10
             </Text>
             <Text style={styles.checkinHechoTexto}>
               ✅ Check-in completado hoy (+10 XP)
@@ -216,19 +203,42 @@ export default function HomeScreen() {
               disabled={guardando}
             >
               <Text style={styles.botonTexto}>
-                {guardando ? "Guardando..." : "Registrar mi estado de hoy"}
+                {guardando
+                  ? "Analizando con IA..."
+                  : "Registrar mi estado de hoy"}
               </Text>
             </Pressable>
           </View>
         )}
       </View>
 
-      {/* Misión recomendada */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitulo}>🎯 Misión recomendada</Text>
-        <Text style={styles.misionTitulo}>{mision.titulo}</Text>
-        <Text style={styles.misionXP}>Recompensa: +{mision.xp} XP</Text>
-      </View>
+      {/* Misión recomendada por IA (después del checkin) */}
+      {misionesIA.length > 0 && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitulo}>🎯 Misión recomendada por IA</Text>
+          <Text style={styles.misionTitulo}>{misionesIA[0].titulo}</Text>
+          <Text style={styles.misionXP}>
+            Recompensa: +{misionesIA[0].xp_recompensa} XP
+          </Text>
+        </View>
+      )}
+
+      {/* Misión fija si no hay checkin aún */}
+      {!checkinData && misionesIA.length === 0 && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitulo}>🎯 Misión sugerida</Text>
+          <Text style={styles.misionTitulo}>
+            {nivelEstres <= 3
+              ? "📚 Adelanta una tarea pendiente"
+              : nivelEstres <= 6
+                ? "📝 Haz una lista de tus pendientes"
+                : "🧘 Toma 10 minutos para respirar y descansar"}
+          </Text>
+          <Text style={styles.misionXP}>
+            Haz tu check-in para obtener misiones personalizadas ✨
+          </Text>
+        </View>
+      )}
 
       {/* Tareas próximas */}
       <View style={styles.card}>
@@ -239,12 +249,11 @@ export default function HomeScreen() {
           tareasPendientes.map((tarea) => (
             <View key={tarea.id} style={styles.tareaItem}>
               <Text style={styles.tareaTitulo}>{tarea.titulo}</Text>
-              <Text style={styles.tareaFecha}>
-                📆{" "}
-                {new Date(
-                  tarea.fechaEntrega?.seconds * 1000,
-                ).toLocaleDateString("es-MX")}
-              </Text>
+              {tarea.fecha_limite && (
+                <Text style={styles.tareaFecha}>
+                  📆 {new Date(tarea.fecha_limite).toLocaleDateString("es-MX")}
+                </Text>
+              )}
             </View>
           ))
         )}
@@ -254,7 +263,12 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F5F3FF", padding: 16 },
+  container: {
+    flex: 1,
+    backgroundColor: "#F5F3FF",
+    padding: 16,
+    paddingTop: 41,
+  },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
@@ -263,7 +277,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginTop: 8,
   },
-  saludo: { fontSize: 22, fontWeight: "bold", color: "#1E1B4B" },
+  saludo: { fontSize: 24, fontWeight: "bold", color: "#1E1B4B" },
   fecha: {
     fontSize: 13,
     color: "#6B7280",

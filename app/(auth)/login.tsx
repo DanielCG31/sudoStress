@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
 import { useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,22 +10,43 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { auth } from "../../lib/firebase";
-// Importamos los estilos maestros
+import { useAuthStore } from "../../store/useAuthStore";
 import { styles } from "./auth.styles";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const { login } = useAuthStore();
   const router = useRouter();
 
   const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError("Por favor llena todos los campos.");
+      return;
+    }
+
+    setCargando(true);
+    setError("");
+
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      router.replace("/(tabs)");
-    } catch (e: any) {
-      setError("Correo o contraseña incorrectos");
+      const data = await login(email.trim(), password);
+
+      if (data.token) {
+        router.replace("/(tabs)");
+      } else {
+        // Laravel devuelve errores de validación en data.errors
+        const mensaje =
+          data.errors?.email?.[0] ??
+          data.message ??
+          "Correo o contraseña incorrectos.";
+        setError(mensaje);
+      }
+    } catch (e) {
+      setError("No se pudo conectar al servidor.");
+    } finally {
+      setCargando(false);
     }
   };
 
@@ -46,7 +67,11 @@ export default function LoginScreen() {
 
           <TextInput
             placeholder="Correo electrónico"
-            onChangeText={setEmail}
+            value={email}
+            onChangeText={(t) => {
+              setEmail(t);
+              setError("");
+            }}
             autoCapitalize="none"
             keyboardType="email-address"
             style={styles.input}
@@ -55,7 +80,11 @@ export default function LoginScreen() {
 
           <TextInput
             placeholder="Contraseña"
-            onChangeText={setPassword}
+            value={password}
+            onChangeText={(t) => {
+              setPassword(t);
+              setError("");
+            }}
             secureTextEntry
             style={styles.input}
             placeholderTextColor="#9ca3af"
@@ -67,12 +96,17 @@ export default function LoginScreen() {
         <View style={styles.buttonSection}>
           <Pressable
             onPress={handleLogin}
+            disabled={cargando}
             style={({ pressed }) => [
               styles.buttonPrimary,
-              { backgroundColor: pressed ? "#1d4ed8" : "#2563eb" },
+              { backgroundColor: pressed || cargando ? "#1d4ed8" : "#2563eb" },
             ]}
           >
-            <Text style={styles.buttonPrimaryText}>Iniciar sesión</Text>
+            {cargando ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonPrimaryText}>Iniciar sesión</Text>
+            )}
           </Pressable>
 
           <Pressable

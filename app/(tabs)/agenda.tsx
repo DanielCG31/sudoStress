@@ -1,55 +1,59 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDocs,
-    orderBy,
-    query,
-    updateDoc,
-} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import { auth, db } from "../../lib/firebase";
+import {
+  actualizarTarea,
+  crearTarea,
+  eliminarTarea,
+  obtenerTareas,
+} from "../../lib/services/tareaService";
 
 type Tarea = {
-  id: string;
+  id: number;
   titulo: string;
-  tipo: "tarea" | "examen" | "proyecto" | "otro";
-  fechaEntrega: any;
-  completada: boolean;
+  categoria: "escolar" | "personal" | "salud" | "otro";
+  fecha_limite: string | null;
+  estado: "pendiente" | "en_progreso" | "completada";
+  recomendacion?: {
+    pasos: string[];
+    consejo: string;
+    tiempo_estimado: string | null;
+  };
 };
 
-const TIPOS = [
-  { key: "tarea", label: "📝 Tarea", color: "#7C3AED" },
-  { key: "examen", label: "📖 Examen", color: "#EF4444" },
-  { key: "proyecto", label: "💻 Proyecto", color: "#F59E0B" },
+type RecomendacionModal = {
+  visible: boolean;
+  tarea: Tarea | null;
+};
+
+const CATEGORIAS = [
+  { key: "escolar", label: "📝 Escolar", color: "#7C3AED" },
+  { key: "personal", label: "🙋 Personal", color: "#3B82F6" },
+  { key: "salud", label: "💚 Salud", color: "#10B981" },
   { key: "otro", label: "📌 Otro", color: "#6B7280" },
 ];
 
-const getTipoInfo = (tipo: string) =>
-  TIPOS.find((t) => t.key === tipo) ?? TIPOS[3];
+const getCategoriaInfo = (cat: string) =>
+  CATEGORIAS.find((c) => c.key === cat) ?? CATEGORIAS[3];
 
-const diasRestantes = (fecha: any) => {
+const diasRestantes = (fecha: string | null) => {
+  if (!fecha) return null;
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
-  const entrega = new Date(fecha?.seconds * 1000);
+  const entrega = new Date(fecha);
   entrega.setHours(0, 0, 0, 0);
-  const diff = Math.ceil(
-    (entrega.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24),
-  );
-  return diff;
+  return Math.ceil((entrega.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
 };
 
 const colorDias = (dias: number) => {
@@ -71,10 +75,15 @@ export default function AgendaScreen() {
   const [cargando, setCargando] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [mostrarFecha, setMostrarFecha] = useState(false);
+  const [recomendacionModal, setRecomendacionModal] =
+    useState<RecomendacionModal>({
+      visible: false,
+      tarea: null,
+    });
 
   // Formulario nueva tarea
   const [titulo, setTitulo] = useState("");
-  const [tipo, setTipo] = useState<Tarea["tipo"]>("tarea");
+  const [categoria, setCategoria] = useState<Tarea["categoria"]>("escolar");
   const [fecha, setFecha] = useState(new Date());
   const [guardando, setGuardando] = useState(false);
 
@@ -88,15 +97,9 @@ export default function AgendaScreen() {
   }, []);
 
   const cargarTareas = async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
     try {
-      const q = query(
-        collection(db, "users", uid, "tareas"),
-        orderBy("fechaEntrega", "asc"),
-      );
-      const snap = await getDocs(q);
-      setTareas(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Tarea));
+      const res = await obtenerTareas();
+      setTareas(res.tareas ?? []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -106,25 +109,31 @@ export default function AgendaScreen() {
 
   const agregarTarea = async () => {
     if (!titulo.trim()) return;
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
     setGuardando(true);
     try {
-      const nueva = {
+      const res = await crearTarea({
         titulo: titulo.trim(),
-        tipo,
-        fechaEntrega: fecha,
-        completada: false,
-      };
-      const docRef = await addDoc(
-        collection(db, "users", uid, "tareas"),
-        nueva,
-      );
+        categoria,
+        fecha_limite: fecha.toISOString().split("T")[0],
+      });
+
+      // Agregar tarea con la recomendación IA incluida
       setTareas((prev) =>
-        [...prev, { id: docRef.id, ...nueva } as any].sort(
-          (a, b) => a.fechaEntrega?.seconds - b.fechaEntrega?.seconds,
+        [...prev, { ...res.tarea, recomendacion: res.recomendacion }].sort(
+          (a, b) =>
+            new Date(a.fecha_limite ?? "").getTime() -
+            new Date(b.fecha_limite ?? "").getTime(),
         ),
       );
+
+      // Mostrar recomendación IA automáticamente
+      if (res.recomendacion) {
+        setRecomendacionModal({
+          visible: true,
+          tarea: { ...res.tarea, recomendacion: res.recomendacion },
+        });
+      }
+
       cerrarModal();
     } catch (e) {
       console.error(e);
@@ -134,15 +143,13 @@ export default function AgendaScreen() {
   };
 
   const toggleCompletar = async (tarea: Tarea) => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
+    const nuevoEstado =
+      tarea.estado === "completada" ? "pendiente" : "completada";
     try {
-      await updateDoc(doc(db, "users", uid, "tareas", tarea.id), {
-        completada: !tarea.completada,
-      });
+      await actualizarTarea(tarea.id, { estado: nuevoEstado });
       setTareas((prev) =>
         prev.map((t) =>
-          t.id === tarea.id ? { ...t, completada: !t.completada } : t,
+          t.id === tarea.id ? { ...t, estado: nuevoEstado } : t,
         ),
       );
     } catch (e) {
@@ -150,27 +157,34 @@ export default function AgendaScreen() {
     }
   };
 
-  const eliminarTarea = async (id: string) => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-    try {
-      await deleteDoc(doc(db, "users", uid, "tareas", id));
-      setTareas((prev) => prev.filter((t) => t.id !== id));
-    } catch (e) {
-      console.error(e);
-    }
+  const handleEliminar = async (id: number) => {
+    Alert.alert("Eliminar tarea", "¿Estás seguro?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await eliminarTarea(id);
+            setTareas((prev) => prev.filter((t) => t.id !== id));
+          } catch (e) {
+            console.error(e);
+          }
+        },
+      },
+    ]);
   };
 
   const cerrarModal = () => {
     setModalVisible(false);
     setTitulo("");
-    setTipo("tarea");
+    setCategoria("escolar");
     setFecha(new Date());
   };
 
   const tareasFiltradas = tareas.filter((t) => {
-    if (filtro === "pendientes") return !t.completada;
-    if (filtro === "completadas") return t.completada;
+    if (filtro === "pendientes") return t.estado !== "completada";
+    if (filtro === "completadas") return t.estado === "completada";
     return true;
   });
 
@@ -199,22 +213,23 @@ export default function AgendaScreen() {
       <View style={styles.resumenRow}>
         <View style={[styles.resumenCard, { backgroundColor: "#EDE9FE" }]}>
           <Text style={styles.resumenNumero}>
-            {tareas.filter((t) => !t.completada).length}
+            {tareas.filter((t) => t.estado !== "completada").length}
           </Text>
           <Text style={styles.resumenLabel}>Pendientes</Text>
         </View>
         <View style={[styles.resumenCard, { backgroundColor: "#D1FAE5" }]}>
           <Text style={[styles.resumenNumero, { color: "#059669" }]}>
-            {tareas.filter((t) => t.completada).length}
+            {tareas.filter((t) => t.estado === "completada").length}
           </Text>
           <Text style={styles.resumenLabel}>Completadas</Text>
         </View>
         <View style={[styles.resumenCard, { backgroundColor: "#FEE2E2" }]}>
           <Text style={[styles.resumenNumero, { color: "#EF4444" }]}>
             {
-              tareas.filter(
-                (t) => !t.completada && diasRestantes(t.fechaEntrega) <= 2,
-              ).length
+              tareas.filter((t) => {
+                const dias = diasRestantes(t.fecha_limite);
+                return t.estado !== "completada" && dias !== null && dias <= 2;
+              }).length
             }
           </Text>
           <Text style={styles.resumenLabel}>Urgentes</Text>
@@ -254,15 +269,13 @@ export default function AgendaScreen() {
           </View>
         ) : (
           tareasFiltradas.map((tarea) => {
-            const tipoInfo = getTipoInfo(tarea.tipo);
-            const dias = diasRestantes(tarea.fechaEntrega);
+            const catInfo = getCategoriaInfo(tarea.categoria);
+            const dias = diasRestantes(tarea.fecha_limite);
+            const completada = tarea.estado === "completada";
             return (
               <View
                 key={tarea.id}
-                style={[
-                  styles.tareaCard,
-                  tarea.completada && styles.tareaCompletada,
-                ]}
+                style={[styles.tareaCard, completada && styles.tareaCompletada]}
               >
                 {/* Checkbox */}
                 <Pressable
@@ -270,21 +283,22 @@ export default function AgendaScreen() {
                   style={styles.checkbox}
                 >
                   <Ionicons
-                    name={
-                      tarea.completada ? "checkmark-circle" : "ellipse-outline"
-                    }
+                    name={completada ? "checkmark-circle" : "ellipse-outline"}
                     size={26}
-                    color={tarea.completada ? "#10B981" : "#D1D5DB"}
+                    color={completada ? "#10B981" : "#D1D5DB"}
                   />
                 </Pressable>
 
                 {/* Info */}
-                <View style={styles.tareaInfo}>
+                <Pressable
+                  style={styles.tareaInfo}
+                  onPress={() =>
+                    tarea.recomendacion &&
+                    setRecomendacionModal({ visible: true, tarea })
+                  }
+                >
                   <Text
-                    style={[
-                      styles.tareaTitulo,
-                      tarea.completada && styles.tachado,
-                    ]}
+                    style={[styles.tareaTitulo, completada && styles.tachado]}
                   >
                     {tarea.titulo}
                   </Text>
@@ -292,38 +306,44 @@ export default function AgendaScreen() {
                     <View
                       style={[
                         styles.tipoBadge,
-                        { backgroundColor: tipoInfo.color + "20" },
+                        { backgroundColor: catInfo.color + "20" },
                       ]}
                     >
                       <Text
-                        style={[styles.tipoTexto, { color: tipoInfo.color }]}
+                        style={[styles.tipoTexto, { color: catInfo.color }]}
                       >
-                        {tipoInfo.label}
+                        {catInfo.label}
                       </Text>
                     </View>
-                    {!tarea.completada && (
+                    {dias !== null && !completada && (
                       <Text
                         style={[styles.diasTexto, { color: colorDias(dias) }]}
                       >
                         {labelDias(dias)}
                       </Text>
                     )}
+                    {tarea.recomendacion && (
+                      <Text style={styles.iaLabel}>✨ Ver pasos</Text>
+                    )}
                   </View>
-                  <Text style={styles.fechaTexto}>
-                    📆{" "}
-                    {new Date(
-                      tarea.fechaEntrega?.seconds * 1000,
-                    ).toLocaleDateString("es-MX", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </Text>
-                </View>
+                  {tarea.fecha_limite && (
+                    <Text style={styles.fechaTexto}>
+                      📆{" "}
+                      {new Date(tarea.fecha_limite).toLocaleDateString(
+                        "es-MX",
+                        {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        },
+                      )}
+                    </Text>
+                  )}
+                </Pressable>
 
                 {/* Eliminar */}
                 <Pressable
-                  onPress={() => eliminarTarea(tarea.id)}
+                  onPress={() => handleEliminar(tarea.id)}
                   style={styles.eliminarBtn}
                 >
                   <Ionicons name="trash-outline" size={18} color="#EF4444" />
@@ -340,7 +360,6 @@ export default function AgendaScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitulo}>Nueva tarea ➕</Text>
 
-            {/* Título */}
             <Text style={styles.inputLabel}>Título</Text>
             <TextInput
               style={styles.input}
@@ -350,31 +369,29 @@ export default function AgendaScreen() {
               maxLength={60}
             />
 
-            {/* Tipo */}
-            <Text style={styles.inputLabel}>Tipo</Text>
+            <Text style={styles.inputLabel}>Categoría</Text>
             <View style={styles.tiposRow}>
-              {TIPOS.map((t) => (
+              {CATEGORIAS.map((c) => (
                 <Pressable
-                  key={t.key}
+                  key={c.key}
                   style={[
                     styles.tipoBtn,
-                    tipo === t.key && { backgroundColor: t.color },
+                    categoria === c.key && { backgroundColor: c.color },
                   ]}
-                  onPress={() => setTipo(t.key as Tarea["tipo"])}
+                  onPress={() => setCategoria(c.key as Tarea["categoria"])}
                 >
                   <Text
                     style={[
                       styles.tipoBtnTexto,
-                      tipo === t.key && { color: "#fff" },
+                      categoria === c.key && { color: "#fff" },
                     ]}
                   >
-                    {t.label}
+                    {c.label}
                   </Text>
                 </Pressable>
               ))}
             </View>
 
-            {/* Fecha */}
             <Text style={styles.inputLabel}>Fecha de entrega</Text>
             <Pressable
               style={styles.fechaBtn}
@@ -402,7 +419,10 @@ export default function AgendaScreen() {
               />
             )}
 
-            {/* Botones */}
+            <Text style={styles.iaNote}>
+              ✨ La IA generará pasos y consejos automáticamente
+            </Text>
+
             <View style={styles.modalBotones}>
               <Pressable style={styles.botonCancelar} onPress={cerrarModal}>
                 <Text style={styles.botonCancelarTexto}>Cancelar</Text>
@@ -416,10 +436,61 @@ export default function AgendaScreen() {
                 disabled={!titulo.trim() || guardando}
               >
                 <Text style={styles.botonGuardarTexto}>
-                  {guardando ? "Guardando..." : "Agregar"}
+                  {guardando ? "Analizando con IA..." : "Agregar"}
                 </Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal pasos IA */}
+      <Modal
+        visible={recomendacionModal.visible}
+        animationType="slide"
+        transparent
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitulo}>
+              ✨ {recomendacionModal.tarea?.titulo}
+            </Text>
+
+            {recomendacionModal.tarea?.recomendacion?.consejo && (
+              <View style={styles.consejoBox}>
+                <Text style={styles.consejoTexto}>
+                  💡 {recomendacionModal.tarea.recomendacion.consejo}
+                </Text>
+              </View>
+            )}
+
+            {recomendacionModal.tarea?.recomendacion?.tiempo_estimado && (
+              <Text style={styles.tiempoTexto}>
+                ⏱ Tiempo estimado:{" "}
+                {recomendacionModal.tarea.recomendacion.tiempo_estimado}
+              </Text>
+            )}
+
+            <Text style={styles.inputLabel}>Pasos a seguir:</Text>
+            <ScrollView style={{ maxHeight: 220 }}>
+              {recomendacionModal.tarea?.recomendacion?.pasos.map((paso, i) => (
+                <View key={i} style={styles.pasoItem}>
+                  <View style={styles.pasoBullet}>
+                    <Text style={styles.pasoBulletTexto}>{i + 1}</Text>
+                  </View>
+                  <Text style={styles.pasoTexto}>{paso}</Text>
+                </View>
+              ))}
+            </ScrollView>
+
+            <Pressable
+              style={styles.botonGuardar}
+              onPress={() =>
+                setRecomendacionModal({ visible: false, tarea: null })
+              }
+            >
+              <Text style={styles.botonGuardarTexto}>Entendido 👍</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -495,6 +566,7 @@ const styles = StyleSheet.create({
   tipoBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
   tipoTexto: { fontSize: 11, fontWeight: "600" },
   diasTexto: { fontSize: 12, fontWeight: "700" },
+  iaLabel: { fontSize: 11, color: "#7C3AED", fontWeight: "600" },
   fechaTexto: { fontSize: 12, color: "#9CA3AF" },
   eliminarBtn: { padding: 4 },
   modalOverlay: {
@@ -551,9 +623,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#F5F3FF",
     borderRadius: 10,
     padding: 12,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   fechaBtnTexto: { fontSize: 14, color: "#7C3AED", fontWeight: "500" },
+  iaNote: {
+    fontSize: 12,
+    color: "#7C3AED",
+    fontStyle: "italic",
+    textAlign: "center",
+    marginBottom: 20,
+  },
   modalBotones: { flexDirection: "row", gap: 12 },
   botonCancelar: {
     flex: 1,
@@ -571,4 +650,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   botonGuardarTexto: { color: "#fff", fontWeight: "700" },
+  consejoBox: {
+    backgroundColor: "#EDE9FE",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  consejoTexto: { fontSize: 13, color: "#5B21B6", fontStyle: "italic" },
+  tiempoTexto: { fontSize: 13, color: "#6B7280", marginBottom: 12 },
+  pasoItem: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+    alignItems: "flex-start",
+  },
+  pasoBullet: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#7C3AED",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  pasoBulletTexto: { color: "#fff", fontSize: 12, fontWeight: "bold" },
+  pasoTexto: { flex: 1, fontSize: 13, color: "#374151", lineHeight: 20 },
 });
