@@ -15,15 +15,17 @@ export const styles = StyleSheet.create({
     marginTop: 80, // Un poco de espacio desde arriba
   },
   logo: {
-    width: 200, // Un buen tamaño para el logo principal
+    width: 350, // Un buen tamaño para el logo principal
     height: 200,
     resizeMode: "contain", // Asegura que el logo no se distorsione
     marginBottom: 20,
+    marginLeft: -20, // Ajuste fino para centrar visualmente el logo con el texto
   },
   appName: {
     fontSize: 42,
     fontWeight: "bold",
     color: "#111827", // Un gris oscuro casi negro
+    fontFamily: "", // Usa la fuente del sistema para un aspecto nativo
   },
   slogan: {
     fontSize: 16,

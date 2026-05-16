@@ -4,7 +4,7 @@ import { styles } from "./index.styles";
 
 export default function HomeScreen() {
   const router = useRouter();
-  const logo = require("../assets/images/logo.png");
+  const logo = require("../assets/imagenes/image.png");
 
   return (
     <View style={styles.container}>

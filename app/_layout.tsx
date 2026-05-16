@@ -1,42 +1,22 @@
-import { Stack, useRouter, useSegments } from "expo-router";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { Stack, useRouter } from "expo-router";
 import { useEffect } from "react";
-import { auth, db } from "../lib/firebase";
 import { useAuthStore } from "../store/useAuthStore";
 
 export default function RootLayout() {
-  const { setUser } = useAuthStore();
+  const { user, cargarSesion, loading } = useAuthStore();
   const router = useRouter();
-  const segments = useSegments();
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
+    void cargarSesion();
+  }, [cargarSesion]);
 
-      if (firebaseUser) {
-        // Verificar que tenga perfil en Firestore
-        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-        if (!userDoc.exists()) {
-          await setDoc(doc(db, "users", firebaseUser.uid), {
-            nombre: firebaseUser.displayName ?? "",
-            semestre: "",
-            xp: 0,
-            monedas: 0,
-            nivel: 1,
-            creadoEn: new Date(),
-          });
-        }
-        // Redirigir al Home
-        router.replace("/(tabs)");
-      } else {
-        // No hay sesión, ir al index de login
-        router.replace("/");
-      }
-    });
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
 
-    return unsub;
-  }, []);
+    router.replace(user ? "/(tabs)" : "/");
+  }, [loading, router, user]);
 
   return <Stack screenOptions={{ headerShown: false }} />;
 }
