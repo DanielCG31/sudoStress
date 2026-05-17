@@ -16,6 +16,7 @@ import {
 import { verificarLogros } from "../../lib/services/perfilService";
 import { useAuthStore } from "../../store/useAuthStore";
 
+// ── Tipos ───────────────────────────────────────────────────────────────
 type Mision = {
   id: number;
   titulo: string;
@@ -35,10 +36,11 @@ type Stats = {
   racha_actual: number;
 };
 
+// ── Helpers ─────────────────────────────────────────────────────────────
 const CATEGORIA_COLORS: Record<string, string> = {
-  facil: "#10B981",
-  media: "#F59E0B",
-  dificil: "#EF4444",
+  facil: "#10B981", // verde
+  media: "#F59E0B", // naranja
+  dificil: "#EF4444", // rojo
 };
 
 const DIFICULTAD_LABEL: Record<string, string> = {
@@ -47,13 +49,22 @@ const DIFICULTAD_LABEL: Record<string, string> = {
   dificil: "Difícil",
 };
 
+const FILTROS_UI = [
+  { key: "todas", label: "Todas" },
+  { key: "pendiente", label: "Pendientes" },
+  { key: "en_progreso", label: "En progreso" },
+  { key: "completada", label: "Completadas" },
+] as const;
+
 export default function MisionesScreen() {
   const { user } = useAuthStore();
   const [misiones, setMisiones] = useState<Mision[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [cargando, setCargando] = useState(true);
-  const [tab, setTab] = useState<"pendientes" | "completadas">("pendientes");
-  const [completando, setCompletando] = useState<number | null>(null);
+  const [filtro, setFiltro] = useState<
+    "todas" | "pendiente" | "en_progreso" | "completada"
+  >("todas");
+  const [procesandoId, setProcesandoId] = useState<number | null>(null);
 
   useEffect(() => {
     cargarDatos();
@@ -74,50 +85,63 @@ export default function MisionesScreen() {
     }
   };
 
-  const completarMision = async (mision: Mision) => {
+  const handleCambiarEstado = async (mision: Mision) => {
     if (mision.estado === "completada") return;
-    setCompletando(mision.id);
+
+    // Flujo web: pendiente -> en_progreso -> completada
+    const nuevoEstado =
+      mision.estado === "pendiente" ? "en_progreso" : "completada";
+
+    setProcesandoId(mision.id);
 
     try {
-      const res = await actualizarEstado(mision.id, "completada");
+      const res = await actualizarEstado(mision.id, nuevoEstado);
 
-      // Actualizar misión en la lista
+      // 1. Actualizar la misión en la lista local
       setMisiones((prev) =>
         prev.map((m) =>
-          m.id === mision.id ? { ...m, estado: "completada" } : m,
+          m.id === mision.id ? { ...m, estado: nuevoEstado } : m,
         ),
       );
 
-      // Actualizar XP y monedas en el store
-      if (res.usuario && user) {
-        useAuthStore.setState({
-          user: {
-            ...user,
-            xp: res.usuario.xp,
-            monedas: res.usuario.monedas,
-            nivel: res.usuario.nivel,
-          },
-        });
+      // 2. Si se completó, dar recompensas
+      if (nuevoEstado === "completada") {
+        if (res.usuario && user) {
+          useAuthStore.setState({
+            user: {
+              ...user,
+              xp: res.usuario.xp,
+              monedas: res.usuario.monedas,
+              nivel: res.usuario.nivel,
+            },
+          });
+        }
+        await verificarLogros();
+        const statsRes = await obtenerEstadisticas();
+        setStats(statsRes);
       }
-
-      // Verificar logros nuevos
-      await verificarLogros();
-
-      // Recargar stats
-      const statsRes = await obtenerEstadisticas();
-      setStats(statsRes);
     } catch (e) {
       console.error(e);
     } finally {
-      setCompletando(null);
+      setProcesandoId(null);
     }
   };
 
+  // Filtrado de la lista
   const misionesFiltradas = misiones.filter((m) =>
-    tab === "pendientes"
-      ? m.estado !== "completada"
-      : m.estado === "completada",
+    filtro === "todas" ? true : m.estado === filtro,
   );
+
+  // Conteos dinámicos para los mini-cuadros (igual que en la web)
+  const countPendientes = misiones.filter(
+    (m) => m.estado === "pendiente",
+  ).length;
+  const countProgreso = misiones.filter(
+    (m) => m.estado === "en_progreso",
+  ).length;
+  const countCompletadas = misiones.filter(
+    (m) => m.estado === "completada",
+  ).length;
 
   if (cargando) {
     return (
@@ -129,63 +153,100 @@ export default function MisionesScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* ══ Header ══ */}
       <View style={styles.header}>
-        <Text style={styles.titulo}>Misiones ⚔️</Text>
+        <Text style={styles.titulo}>Misiones</Text>
+        <Text style={styles.subtitulo}>
+          Gestiona tus misiones activas y completa las que ya resolviste.
+        </Text>
       </View>
 
-      {/* Card XP + stats */}
-      <View style={styles.xpCard}>
-        <View>
-          <Text style={styles.xpLabel}>XP Total ganado</Text>
-          <Text style={styles.xpValor}>⭐ {stats?.xp_ganado ?? 0} XP</Text>
+      {/* ══ Filtros ══ */}
+      <View style={styles.filtrosScrollWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filtrosRow}
+        >
+          {FILTROS_UI.map((f) => (
+            <Pressable
+              key={f.key}
+              style={[
+                styles.filtroBtn,
+                filtro === f.key && styles.filtroBtnActivo,
+              ]}
+              onPress={() => setFiltro(f.key as any)}
+            >
+              <Text
+                style={[
+                  styles.filtroTexto,
+                  filtro === f.key && styles.filtroTextoActivo,
+                ]}
+              >
+                {f.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* ══ Stats: Mini cuadros (Pendientes, En progreso, Completadas) ══ */}
+      <View style={styles.statsGridRow}>
+        <View
+          style={[
+            styles.statMini,
+            { backgroundColor: "rgba(124,58,237,0.06)" },
+          ]}
+        >
+          <Text style={[styles.statMiniVal, { color: "#7C3AED" }]}>
+            {countPendientes}
+          </Text>
+          <Text style={styles.statMiniLbl}>Pendientes</Text>
         </View>
-        <View style={styles.xpStats}>
-          <Text style={styles.xpStatTexto}>
-            ✅ {stats?.total_completadas ?? 0} completadas
+
+        <View
+          style={[
+            styles.statMini,
+            { backgroundColor: "rgba(245,158,11,0.06)" },
+          ]}
+        >
+          <Text style={[styles.statMiniVal, { color: "#F59E0B" }]}>
+            {countProgreso}
           </Text>
-          <Text style={styles.xpStatTexto}>
-            🔥 Racha: {stats?.racha_actual ?? 0} días
+          <Text style={styles.statMiniLbl}>En progreso</Text>
+        </View>
+
+        <View
+          style={[
+            styles.statMini,
+            { backgroundColor: "rgba(16,185,129,0.06)" },
+          ]}
+        >
+          <Text style={[styles.statMiniVal, { color: "#10B981" }]}>
+            {countCompletadas}
           </Text>
-          <Text style={styles.xpStatTexto}>
-            ⏳ {stats?.total_pendientes ?? 0} pendientes
-          </Text>
+          <Text style={styles.statMiniLbl}>Completadas</Text>
         </View>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabsRow}>
-        {(["pendientes", "completadas"] as const).map((t) => (
-          <Pressable
-            key={t}
-            style={[styles.tab, tab === t && styles.tabActivo]}
-            onPress={() => setTab(t)}
-          >
-            <Text style={[styles.tabTexto, tab === t && styles.tabTextoActivo]}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Lista de misiones */}
-      <ScrollView showsVerticalScrollIndicator={false}>
+      {/* ══ Lista de misiones ══ */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
         {misionesFiltradas.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>
-              {tab === "pendientes" ? "🎯" : "🏆"}
-            </Text>
+            <Text style={styles.emptyEmoji}>🎯</Text>
             <Text style={styles.emptyTexto}>
-              {tab === "pendientes"
-                ? "No tienes misiones pendientes\nHaz un check-in para recibir nuevas"
-                : "Aún no completas ninguna misión"}
+              No tienes misiones para mostrar con este filtro.
             </Text>
           </View>
         ) : (
           misionesFiltradas.map((mision) => {
-            const color = CATEGORIA_COLORS[mision.dificultad];
+            const colorDif = CATEGORIA_COLORS[mision.dificultad];
             const completada = mision.estado === "completada";
-            const cargandoEsta = completando === mision.id;
+            const enProgreso = mision.estado === "en_progreso";
+            const procesandoEsta = procesandoId === mision.id;
 
             return (
               <View
@@ -197,71 +258,94 @@ export default function MisionesScreen() {
               >
                 {/* Acento lateral por dificultad */}
                 <View
-                  style={[styles.misionAccent, { backgroundColor: color }]}
+                  style={[styles.misionAccent, { backgroundColor: colorDif }]}
                 />
 
                 <View style={styles.misionInfo}>
                   <View style={styles.misionHeaderRow}>
-                    <Text
-                      style={[
-                        styles.misionTitulo,
-                        completada && styles.tachado,
-                      ]}
-                    >
-                      {mision.titulo}
-                    </Text>
+                    {/* Badges Web: Dificultad + Estado */}
                     <View
                       style={[
-                        styles.dificultadBadge,
-                        { backgroundColor: color + "20" },
+                        styles.badge,
+                        { backgroundColor: colorDif + "20" },
                       ]}
                     >
-                      <Text style={[styles.dificultadTexto, { color }]}>
+                      <Text style={[styles.badgeTexto, { color: colorDif }]}>
                         {DIFICULTAD_LABEL[mision.dificultad]}
                       </Text>
                     </View>
+                    <View
+                      style={[styles.badge, { backgroundColor: "#F3F4F6" }]}
+                    >
+                      <Text style={[styles.badgeTexto, { color: "#4B5563" }]}>
+                        {mision.estado.replace("_", " ")}
+                      </Text>
+                    </View>
                   </View>
+
+                  <Text
+                    style={[styles.misionTitulo, completada && styles.tachado]}
+                  >
+                    {mision.titulo}
+                  </Text>
 
                   {mision.descripcion ? (
                     <Text style={styles.misionDesc}>{mision.descripcion}</Text>
                   ) : null}
 
                   <View style={styles.recompensaRow}>
-                    <Text style={[styles.misionXP, { color }]}>
+                    <Text style={styles.misionXP}>
                       +{mision.xp_recompensa} XP
                     </Text>
+                    <Text style={{ color: "#D1D5DB" }}>·</Text>
                     <Text style={styles.misionMonedas}>
                       🪙 +{mision.monedas_recompensa}
                     </Text>
-                    {mision.nivel_estres_origen && (
-                      <Text style={styles.estresBadge}>
-                        Estrés {mision.nivel_estres_origen}/10
-                      </Text>
-                    )}
                   </View>
                 </View>
 
-                {/* Acción */}
+                {/* ══ Botones de Acción (Estilo Web) ══ */}
                 <View style={styles.misionAcciones}>
                   {completada ? (
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={30}
-                      color="#10B981"
-                    />
+                    <View style={styles.btnDone}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={16}
+                        color="#059669"
+                      />
+                      <Text style={styles.btnDoneText}>Completada</Text>
+                    </View>
                   ) : (
                     <Pressable
                       style={[
-                        styles.botonCompletar,
-                        { backgroundColor: color + "20" },
+                        styles.btnAction,
+                        enProgreso ? styles.btnCompletar : styles.btnIniciar,
+                        procesandoEsta && { opacity: 0.6 },
                       ]}
-                      onPress={() => completarMision(mision)}
-                      disabled={cargandoEsta}
+                      onPress={() => handleCambiarEstado(mision)}
+                      disabled={procesandoEsta}
                     >
-                      {cargandoEsta ? (
-                        <ActivityIndicator size="small" color={color} />
+                      {procesandoEsta ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={enProgreso ? "#fff" : "#7C3AED"}
+                        />
                       ) : (
-                        <Ionicons name="checkmark" size={22} color={color} />
+                        <>
+                          <Ionicons
+                            name={enProgreso ? "flag" : "play-circle"}
+                            size={16}
+                            color={enProgreso ? "#fff" : "#7C3AED"}
+                          />
+                          <Text
+                            style={[
+                              styles.btnActionText,
+                              { color: enProgreso ? "#fff" : "#7C3AED" },
+                            ]}
+                          >
+                            {enProgreso ? "Completar" : "Iniciar"}
+                          </Text>
+                        </>
                       )}
                     </Pressable>
                   )}
@@ -275,103 +359,161 @@ export default function MisionesScreen() {
   );
 }
 
+// ── Estilos ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F9FAFB",
     padding: 16,
     paddingTop: 48,
   },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     marginBottom: 16,
   },
-  titulo: { fontSize: 24, fontWeight: "bold", color: "#1E1B4B" },
-  xpCard: {
-    backgroundColor: "#7C3AED",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  xpLabel: { color: "#DDD6FE", fontSize: 12, marginBottom: 4 },
-  xpValor: { color: "#fff", fontSize: 22, fontWeight: "bold" },
-  xpStats: { gap: 4 },
-  xpStatTexto: { color: "#DDD6FE", fontSize: 12 },
-  tabsRow: {
-    flexDirection: "row",
-    backgroundColor: "#EDE9FE",
+  titulo: { fontSize: 28, fontWeight: "800", color: "#111827" },
+  subtitulo: { fontSize: 14, color: "#9CA3AF", marginTop: 4 },
+
+  // Filtros (Scroll horizontal)
+  filtrosScrollWrapper: { marginBottom: 16 },
+  filtrosRow: { gap: 8, paddingBottom: 4 },
+  filtroBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 12,
-    padding: 4,
-    marginBottom: 12,
-  },
-  tab: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center" },
-  tabActivo: {
     backgroundColor: "#fff",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
-  tabTexto: { color: "#9CA3AF", fontWeight: "600", fontSize: 14 },
-  tabTextoActivo: { color: "#7C3AED" },
-  empty: { alignItems: "center", paddingTop: 60 },
+  filtroBtnActivo: { backgroundColor: "#F5F3FF", borderColor: "#7C3AED" },
+  filtroTexto: { fontSize: 14, color: "#6B7280", fontWeight: "600" },
+  filtroTextoActivo: { color: "#7C3AED" },
+
+  // Stats Grid (Pendientes, Progreso, Completadas)
+  statsGridRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 20,
+  },
+  statMini: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statMiniVal: {
+    fontSize: 22,
+    fontWeight: "bold",
+  },
+  statMiniLbl: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+    fontWeight: "500",
+  },
+
+  empty: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderStyle: "dashed",
+    backgroundColor: "#fff",
+    padding: 32,
+    alignItems: "center",
+    marginTop: 20,
+  },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyTexto: {
-    color: "#9CA3AF",
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 22,
-  },
+  emptyTexto: { color: "#9CA3AF", fontSize: 15, textAlign: "center" },
+
   misionCard: {
     backgroundColor: "#fff",
-    borderRadius: 14,
-    marginBottom: 10,
+    borderRadius: 16,
+    marginBottom: 12,
     flexDirection: "row",
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
     elevation: 2,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
   },
   misionCompletada: { opacity: 0.6 },
-  misionAccent: { width: 5 },
-  misionInfo: { flex: 1, padding: 14 },
+  misionAccent: { width: 6 },
+  misionInfo: { flex: 1, padding: 16 },
   misionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  misionTitulo: { fontSize: 15, fontWeight: "600", color: "#1E1B4B", flex: 1 },
-  tachado: { textDecorationLine: "line-through", color: "#9CA3AF" },
-  dificultadBadge: {
+  badge: {
     borderRadius: 6,
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
   },
-  dificultadTexto: { fontSize: 10, fontWeight: "700" },
-  misionDesc: { fontSize: 12, color: "#9CA3AF", marginBottom: 6 },
-  recompensaRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  misionXP: { fontSize: 13, fontWeight: "700" },
-  misionMonedas: { fontSize: 12, color: "#6B7280" },
-  estresBadge: {
-    fontSize: 10,
-    color: "#9CA3AF",
-    backgroundColor: "#F3F4F6",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+  badgeTexto: { fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+
+  misionTitulo: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
   },
+  tachado: { textDecorationLine: "line-through", color: "#9CA3AF" },
+  misionDesc: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 10,
+    lineHeight: 18,
+  },
+
+  recompensaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  misionXP: { fontSize: 13, fontWeight: "700", color: "#7C3AED" },
+  misionMonedas: { fontSize: 13, color: "#6B7280", fontWeight: "500" },
+
   misionAcciones: {
-    padding: 14,
+    paddingRight: 16,
     justifyContent: "center",
     alignItems: "center",
   },
-  botonCompletar: { borderRadius: 10, padding: 8 },
+
+  // Botones de Acción
+  btnAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  btnIniciar: {
+    backgroundColor: "#F5F3FF",
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.2)",
+  },
+  btnCompletar: {
+    backgroundColor: "#7C3AED",
+  },
+  btnActionText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  btnDone: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  btnDoneText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#059669",
+  },
 });
