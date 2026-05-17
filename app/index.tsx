@@ -1,50 +1,87 @@
 import { useRouter } from "expo-router";
-import { Image, Pressable, Text, View } from "react-native";
+import { Pressable, StatusBar, Text, View } from "react-native";
+import SudoSaludo from "../assets/imagenes/5sudo-stress.svg";
+import Logo from "../assets/imagenes/logo.svg";
+
 import { styles } from "./index.styles";
 
 export default function HomeScreen() {
   const router = useRouter();
-  const logo = require("../assets/imagenes/image.png");
 
   return (
     <View style={styles.container}>
-      {/* Sección superior para el logo y nombre */}
-      <View style={styles.brandingSection}>
-        <Image source={logo} style={styles.logo} />
-        <Text style={styles.appName}>SudoStress</Text>
-        <Text style={styles.slogan}>
-          Tu compañero para gestionar el estrés día a día
+      <StatusBar barStyle="light-content" backgroundColor="#4c1d95" />
+
+      {/* ── Sección superior — fondo violeta oscuro (como el panel izq. web) ── */}
+      <View style={styles.heroSection}>
+        {/* Overlay decorativo */}
+        <View style={styles.heroOverlay} />
+
+        {/* Logo + nombre */}
+        <View style={styles.brandRow}>
+          <View style={styles.iconWrap}>
+            <Logo width={30} height={30} />
+          </View>
+          <Text style={styles.appName}>SudoStress</Text>
+        </View>
+
+        {/* Imagen de portada */}
+        <SudoSaludo
+          width="100%"
+          height={130}
+          style={{ marginBottom: 16, opacity: 0.92 }}
+        />
+
+        {/* Tagline */}
+        <Text style={styles.heroTitle}>Tu semestre bajo control.</Text>
+        <Text style={styles.heroSubtitle}>
+          Organiza tus entregas, gestiona tus proyectos y mantén tu bienestar en
+          equilibrio desde una sola plataforma.
         </Text>
       </View>
 
-      {/* Sección inferior para los botones */}
-      <View style={styles.buttonSection}>
-        {/* Botón de Iniciar Sesión (Estilo principal azul) */}
+      {/* ── Sección inferior — blanca (como el panel der. web) ── */}
+      <View style={styles.formSection}>
+        <Text style={styles.welcomeTitle}>Bienvenido de nuevo</Text>
+        <Text style={styles.welcomeSubtitle}>
+          Ingresa tu información para iniciar sesión
+        </Text>
+
+        {/* Botón primario */}
         <Pressable
           onPress={() => router.push("/(auth)/login")}
           style={({ pressed }) => [
             styles.buttonPrimary,
-            {
-              backgroundColor: pressed ? "#1d4ed8" : "#2563eb",
-            },
+            { backgroundColor: pressed ? "#4c1d95" : "#7c3aed" },
           ]}
         >
           <Text style={styles.buttonPrimaryText}>Iniciar sesión</Text>
         </Pressable>
 
-        {/* Botón de Registrarse (Estilo fantasma/contorno) */}
+        {/* Botón secundario */}
         <Pressable
           onPress={() => router.push("/(auth)/register")}
           style={({ pressed }) => [
             styles.buttonSecondary,
             {
-              borderColor: pressed ? "#2563eb" : "#93c5fd",
-              backgroundColor: pressed ? "#eff6ff" : "transparent",
+              borderColor: pressed ? "#7c3aed" : "#c4b5fd",
+              backgroundColor: pressed ? "#ede9fe" : "transparent",
             },
           ]}
         >
-          <Text style={styles.buttonSecondaryText}>Registrarse</Text>
+          <Text style={styles.buttonSecondaryText}>Crear una cuenta nueva</Text>
         </Pressable>
+
+        {/* Pie */}
+        <Text style={styles.footerText}>
+          ¿No tienes cuenta?{" "}
+          <Text
+            style={styles.footerLink}
+            onPress={() => router.push("/(auth)/register")}
+          >
+            Regístrate aquí
+          </Text>
+        </Text>
       </View>
     </View>
   );

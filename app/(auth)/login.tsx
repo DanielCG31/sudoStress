@@ -10,8 +10,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import Logo from "../../assets/imagenes/logo.svg";
 import { useAuthStore } from "../../store/useAuthStore";
-import { styles } from "./auth.styles";
+import { loginStyles as styles } from "./auth.styles";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -26,17 +27,13 @@ export default function LoginScreen() {
       setError("Por favor llena todos los campos.");
       return;
     }
-
     setCargando(true);
     setError("");
-
     try {
       const data = await login(email.trim(), password);
-
       if (data.token) {
         router.replace("/(tabs)");
       } else {
-        // Laravel devuelve errores de validación en data.errors
         const mensaje =
           data.errors?.email?.[0] ??
           data.message ??
@@ -58,15 +55,27 @@ export default function LoginScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.formSection}>
-          <Text style={styles.title}>Iniciar Sesión</Text>
+        {/* ── Header violeta ── */}
+        <View style={styles.header}>
+          <View style={styles.iconWrap}>
+            <Logo width={24} height={24} />
+          </View>
+          <Text style={styles.appName}>SudoStress</Text>
+        </View>
+
+        {/* ── Tarjeta blanca ── */}
+        <View style={styles.card}>
+          <Text style={styles.title}>Bienvenido de nuevo</Text>
           <Text style={styles.subtitle}>
-            Qué gusto verte de nuevo en SudoStress
+            Ingresa tu información para iniciar sesión
           </Text>
 
+          {/* Email */}
+          <Text style={styles.label}>Correo electrónico</Text>
           <TextInput
-            placeholder="Correo electrónico"
+            placeholder="usuario@gmail.com"
             value={email}
             onChangeText={(t) => {
               setEmail(t);
@@ -78,8 +87,13 @@ export default function LoginScreen() {
             placeholderTextColor="#9ca3af"
           />
 
+          {/* Contraseña */}
+          <View style={styles.passwordRow}>
+            <Text style={styles.label}>Contraseña</Text>
+            <Text style={styles.forgotLink}>¿Olvidaste tu contraseña?</Text>
+          </View>
           <TextInput
-            placeholder="Contraseña"
+            placeholder="••••••••"
             value={password}
             onChangeText={(t) => {
               setPassword(t);
@@ -90,16 +104,20 @@ export default function LoginScreen() {
             placeholderTextColor="#9ca3af"
           />
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        </View>
+          {/* Error */}
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>⚠️ {error}</Text>
+            </View>
+          ) : null}
 
-        <View style={styles.buttonSection}>
+          {/* Botón primario */}
           <Pressable
             onPress={handleLogin}
             disabled={cargando}
             style={({ pressed }) => [
               styles.buttonPrimary,
-              { backgroundColor: pressed || cargando ? "#1d4ed8" : "#2563eb" },
+              { backgroundColor: pressed || cargando ? "#4c1d95" : "#7c3aed" },
             ]}
           >
             {cargando ? (
@@ -109,13 +127,14 @@ export default function LoginScreen() {
             )}
           </Pressable>
 
+          {/* Botón secundario */}
           <Pressable
             onPress={() => router.push("/(auth)/register")}
             style={({ pressed }) => [
               styles.buttonSecondary,
               {
-                borderColor: pressed ? "#2563eb" : "#93c5fd",
-                backgroundColor: pressed ? "#eff6ff" : "transparent",
+                borderColor: pressed ? "#7c3aed" : "#c4b5fd",
+                backgroundColor: pressed ? "#ede9fe" : "transparent",
               },
             ]}
           >
@@ -123,6 +142,17 @@ export default function LoginScreen() {
               Crear una cuenta nueva
             </Text>
           </Pressable>
+
+          {/* Footer */}
+          <Text style={styles.footerText}>
+            ¿No tienes cuenta?{" "}
+            <Text
+              style={styles.footerLink}
+              onPress={() => router.push("/(auth)/register")}
+            >
+              Regístrate aquí
+            </Text>
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
