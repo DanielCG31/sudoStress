@@ -17,3 +17,8 @@ export const checkinHoy = async () => {
   const res = await authFetch("/checkins/hoy");
   return res.json();
 };
+
+export const obtenerUltimoConsejo = async () => {
+  const res = await authFetch("/checkins/ultimo-consejo");
+  return res.json();
+};
