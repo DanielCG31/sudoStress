@@ -582,7 +582,7 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F9FAFB", // <-- Color unificado
     padding: 16, // <-- Padding global agregado
-    paddingTop: 48, // <-- Altura unificada
+    paddingTop: 5, // <-- Altura unificada
   },
   // Header
   header: {
