@@ -1,4 +1,3 @@
-import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import Slider from "@react-native-community/slider";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -184,14 +183,10 @@ export default function HomeScreen() {
     >
       {/* ══ Header ══ */}
       <View style={s.header}>
-        <View>
-          <Text style={s.saludo}>
-            Hola, {user?.name || "estudiante"}{" "}
-            <MaterialCommunityIcons
-              name="hand-wave"
-              size={20}
-              color="#1f2937"
-            />
+        {/* Contenedor izquierdo: flex 1 obliga al texto a respetar el límite */}
+        <View style={s.headerTextWrap}>
+          <Text style={s.saludo} numberOfLines={2}>
+            Hola, {user?.name ? user.name.split(" ")[0] : "estudiante"} 👋
           </Text>
           <Text style={s.fecha}>
             {new Date().toLocaleDateString("es-MX", {
@@ -202,8 +197,8 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* Nivel + Monedas — igual que la web */}
-        <View style={s.statsRow}>
+        {/* Contenedor derecho: Los badges no se encogen (flexShrink: 0) */}
+        <View style={s.statsCol}>
           <View style={s.statBadgeViolet}>
             <Text style={s.statBadgeVioletText}>
               ⭐ Nivel {user?.nivel ?? 1}
@@ -214,7 +209,6 @@ export default function HomeScreen() {
           </View>
         </View>
       </View>
-
       {/* ══ Frase motivacional ══ */}
       {consejoIA ? (
         <View style={s.quoteBanner}>
@@ -582,46 +576,62 @@ export default function HomeScreen() {
 
 // ── Estilos ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f3ff" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
 
-  // Header — igual que la web: saludo + badges nivel/monedas
+  container: {
+    flex: 1,
+    backgroundColor: "#F9FAFB", // <-- Color unificado
+    padding: 16, // <-- Padding global agregado
+    paddingTop: 48, // <-- Altura unificada
+  },
+  // Header
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 30,
-    paddingBottom: 12,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
-    gap: 12,
+    alignItems: "center", // Centramos verticalmente
+    marginBottom: 16,
   },
-  saludo: { fontSize: 22, fontWeight: "800", color: "#111827" },
+  headerTextWrap: {
+    flex: 1, // <-- ESTO ES LO QUE ARREGLA EL PROBLEMA
+    paddingRight: 16, // Separación entre el nombre y los badges
+  },
+  saludo: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#111827",
+  },
   fecha: {
-    fontSize: 12,
+    fontSize: 13,
     color: "#6b7280",
-    marginTop: 3,
+    marginTop: 4,
     textTransform: "capitalize",
   },
-  statsRow: { flexDirection: "row", gap: 8, flexShrink: 0 },
+
+  // Cambiamos statsRow a statsCol para apilarlos a la derecha
+  statsCol: {
+    flexDirection: "column",
+    alignItems: "flex-end", // Los pega al borde derecho
+    gap: 6, // Espacio vertical entre ambos badges
+    flexShrink: 0, // Evita que se aplasten si el nombre es muy largo
+  },
   statBadgeViolet: {
     backgroundColor: "#f5f3ff",
     borderWidth: 1,
     borderColor: "rgba(124,58,237,.2)",
     borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  statBadgeVioletText: { fontSize: 13, fontWeight: "700", color: "#7c3aed" },
+  statBadgeVioletText: { fontSize: 12, fontWeight: "700", color: "#7c3aed" },
   statBadgeAmber: {
     backgroundColor: "#fffbeb",
     borderWidth: 1,
     borderColor: "#fde68a",
     borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  statBadgeAmberText: { fontSize: 13, fontWeight: "700", color: "#b45309" },
-
+  statBadgeAmberText: { fontSize: 12, fontWeight: "700", color: "#b45309" },
   // Quote
   quoteBanner: {
     backgroundColor: "rgba(111,63,245,.07)",
@@ -630,7 +640,6 @@ const s = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: "#7c3aed",
     borderRadius: 14,
-    marginHorizontal: 16,
     marginTop: 10,
     marginBottom: 12,
     paddingVertical: 12,
@@ -657,13 +666,12 @@ const s = StyleSheet.create({
   // Checkin card
   checkinCard: {
     backgroundColor: "#fff",
-    borderRadius: 22,
-    marginHorizontal: 16,
+    borderRadius: 24,
     marginBottom: 12,
     padding: 20,
     overflow: "hidden",
     position: "relative",
-    shadowColor: "#7c3aed",
+    shadowColor: "#000",
     shadowOpacity: 0.07,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 4 },
@@ -728,10 +736,10 @@ const s = StyleSheet.create({
   sliderNum: { fontSize: 10, color: "#d1d5db" },
   botonCheckin: {
     backgroundColor: "#7c3aed",
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 16,
+    paddingVertical: 16,
     alignItems: "center",
-    shadowColor: "#7c3aed",
+    shadowColor: "#000",
     shadowOpacity: 0.3,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
@@ -741,33 +749,33 @@ const s = StyleSheet.create({
   botonTexto: { color: "#fff", fontWeight: "700", fontSize: 15 },
 
   // Grid
-  grid: { paddingHorizontal: 16, gap: 12, marginBottom: 12 },
+  grid: { gap: 12, marginBottom: 12 },
 
   // Card base compartido
   misionesCard: {
     backgroundColor: "#faf9ff",
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(111,63,245,.12)",
     padding: 18,
     overflow: "hidden",
     position: "relative",
-    shadowColor: "#7c3aed",
-    shadowOpacity: 0.05,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
   },
   tareasCard: {
     backgroundColor: "#fffaf9",
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(251,146,60,.15)",
     padding: 18,
     overflow: "hidden",
     position: "relative",
-    shadowColor: "#f97316",
-    shadowOpacity: 0.05,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
@@ -840,16 +848,15 @@ const s = StyleSheet.create({
   // Gráfica estrés
   estresCard: {
     backgroundColor: "#f9fffe",
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(52,211,153,.15)",
-    marginHorizontal: 16,
     marginBottom: 12,
     padding: 18,
     overflow: "hidden",
     position: "relative",
-    shadowColor: "#10b981",
-    shadowOpacity: 0.05,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,

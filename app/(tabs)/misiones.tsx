@@ -429,7 +429,7 @@ const styles = StyleSheet.create({
 
   misionCard: {
     backgroundColor: "#fff",
-    borderRadius: 16,
+    borderRadius: 24,
     marginBottom: 12,
     flexDirection: "row",
     overflow: "hidden",
