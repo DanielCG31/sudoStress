@@ -12,7 +12,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { LineChart } from "react-native-gifted-charts";
 import {
   actualizarPerfil,
   obtenerHistorialEstres,
@@ -20,11 +19,13 @@ import {
 } from "../../lib/services/perfilService";
 import { useAuthStore } from "../../store/useAuthStore";
 
+// ── Tipos ───────────────────────────────────────────────────────────────
 type Logro = {
   id: number;
   nombre: string;
   descripcion: string;
   icono: string;
+  xp_recompensa?: number;
   obtenido_at?: string;
 };
 
@@ -34,10 +35,18 @@ type Estadisticas = {
     pendientes: number;
     xp_ganado: number;
     racha_dias: number;
+    por_dificultad?: { facil: number; media: number; dificil: number };
   };
   tareas: {
     completadas: number;
     pendientes: number;
+    vencidas: number;
+    por_categoria?: {
+      escolar: number;
+      personal: number;
+      salud: number;
+      otro: number;
+    };
   };
   estres: {
     promedio_semana: number;
@@ -47,14 +56,16 @@ type Estadisticas = {
 
 type GraficaPoint = {
   fecha: string;
-  nivel: number;
+  nivel: number | null;
 };
 
-const getColorNivel = (nivel: number) => {
-  if (nivel < 3) return "#10B981";
-  if (nivel < 5) return "#F59E0B";
-  if (nivel < 7) return "#EF4444";
-  return "#7C3AED";
+// ── Helpers ─────────────────────────────────────────────────────────────
+const getColorNivel = (nivel: number | null) => {
+  if (nivel === null || typeof nivel === "undefined") return "#E5E7EB";
+  if (nivel < 3) return "#10B981"; // Mint
+  if (nivel < 6) return "#F59E0B"; // Amber
+  if (nivel < 8) return "#F97316"; // Orange
+  return "#EF4444"; // Rose
 };
 
 export default function PerfilScreen() {
@@ -64,11 +75,18 @@ export default function PerfilScreen() {
   const [totalLogros, setTotalLogros] = useState(0);
   const [grafica, setGrafica] = useState<GraficaPoint[]>([]);
   const [promedioEstres, setPromedioEstres] = useState<string>("—");
+  const [totalCheckins7Dias, setTotalCheckins7Dias] = useState(0);
   const [cargando, setCargando] = useState(true);
+
+  // Modales y Tabs
+  const [tabActiva, setTabActiva] = useState<
+    "historial" | "logros" | "estadisticas"
+  >("historial");
   const [modalEditar, setModalEditar] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState(user?.name ?? "");
   const [nuevoSemestre, setNuevoSemestre] = useState(user?.semestre ?? "");
   const [guardandoPerfil, setGuardandoPerfil] = useState(false);
+
   const router = useRouter();
 
   useEffect(() => {
@@ -82,7 +100,6 @@ export default function PerfilScreen() {
         obtenerHistorialEstres(7),
       ]);
 
-      // Actualizar store con datos frescos
       if (perfilRes.perfil) {
         useAuthStore.setState((state) => ({
           user: state.user
@@ -100,15 +117,15 @@ export default function PerfilScreen() {
 
       setEstadisticas(perfilRes.estadisticas);
       setLogrosObtenidos(perfilRes.logros?.obtenidos ?? []);
-      setTotalLogros(perfilRes.logros?.total_disponibles ?? 0);
+      setTotalLogros(perfilRes.logros?.total_disponibles ?? 12);
 
-      // Gráfica
       setGrafica(historialRes.grafica ?? []);
       setPromedioEstres(
         historialRes.resumen?.promedio
           ? String(historialRes.resumen.promedio)
           : "—",
       );
+      setTotalCheckins7Dias(historialRes.resumen?.total ?? 0);
     } catch (e) {
       console.error(e);
     } finally {
@@ -154,15 +171,11 @@ export default function PerfilScreen() {
     ]);
   };
 
-  // Datos para la gráfica
-  const datosGrafica = grafica.map((c) => ({
-    value: c.nivel,
-    label: c.fecha,
-    dataPointColor: getColorNivel(c.nivel),
-  }));
-
+  // --- Progreso de la barra de nivel ---
   const xpParaSiguienteNivel = user ? user.nivel * 100 : 100;
-  const progresoNivel = user ? ((user.xp % 100) / 100) * 100 : 0;
+  const progresoCalculado = user ? (user.xp / xpParaSiguienteNivel) * 100 : 0;
+  const progresoNivel = Math.min(100, Math.max(0, progresoCalculado));
+  const rachaActual = estadisticas?.misiones?.racha_dias ?? 0;
 
   if (cargando) {
     return (
@@ -176,170 +189,473 @@ export default function PerfilScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={{ paddingBottom: 40 }}
+      showsVerticalScrollIndicator={false}
     >
-      {/* Header perfil */}
-      <View style={styles.headerCard}>
-        <View style={styles.avatarCirculo}>
-          <Text style={styles.avatarLetra}>
-            {user?.name?.charAt(0).toUpperCase() ?? "?"}
-          </Text>
+      <Text style={styles.screenTitle}>Mi perfil</Text>
+
+      {/* ══ Header Perfil (bg-ink) ══ */}
+      <View style={styles.headerDark}>
+        <View style={styles.headerRow}>
+          <View style={styles.avatarWrap}>
+            <Text style={styles.avatarText}>
+              {user?.name?.charAt(0).toUpperCase() ?? "?"}
+            </Text>
+            <View style={styles.avatarBadge}>
+              <Ionicons name="checkmark" size={12} color="#fff" />
+            </View>
+          </View>
+          <View style={styles.headerInfo}>
+            <Text style={styles.nombreTexto}>{user?.name || "Sin nombre"}</Text>
+            <Text style={styles.subTexto}>{user?.email}</Text>
+            <Text style={styles.subTexto}>
+              {user?.semestre ? `${user.semestre}° Semestre` : "Sin semestre"}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => setModalEditar(true)}
+            style={styles.editBtn}
+          >
+            <Ionicons name="pencil" size={18} color="#fff" />
+          </Pressable>
         </View>
-        <View style={styles.headerInfo}>
-          <Text style={styles.nombreTexto}>{user?.name || "Sin nombre"}</Text>
-          <Text style={styles.semestreTexto}>
-            {user?.semestre ? `Semestre ${user.semestre}` : "Sin semestre"}
-          </Text>
-          <Text style={styles.emailTexto}>🪙 {user?.monedas ?? 0} monedas</Text>
+
+        <View style={styles.tagsRow}>
+          <View
+            style={[styles.tag, { backgroundColor: "rgba(124,58,237,0.3)" }]}
+          >
+            <Text style={[styles.tagText, { color: "#DDD6FE" }]}>
+              Nivel {user?.nivel ?? 1}
+            </Text>
+          </View>
+          <View
+            style={[styles.tag, { backgroundColor: "rgba(245,158,11,0.2)" }]}
+          >
+            <Text style={[styles.tagText, { color: "#FBBF24" }]}>
+              🪙 {user?.monedas ?? 0} monedas
+            </Text>
+          </View>
+          <View
+            style={[styles.tag, { backgroundColor: "rgba(239,68,68,0.2)" }]}
+          >
+            <Text style={[styles.tagText, { color: "#F87171" }]}>
+              🔥 Racha {rachaActual} días
+            </Text>
+          </View>
         </View>
-        <Pressable
-          onPress={() => setModalEditar(true)}
-          style={styles.editarBtn}
-        >
-          <Ionicons name="pencil" size={18} color="#7C3AED" />
-        </Pressable>
       </View>
 
-      {/* Nivel y XP */}
+      {/* ══ Progreso y Nivel ══ */}
       <View style={styles.card}>
         <View style={styles.nivelRow}>
-          <Text style={styles.cardTitulo}>Nivel {user?.nivel ?? 1}</Text>
-          <Text style={styles.xpTexto}>⭐ {user?.xp ?? 0} XP</Text>
+          <Text style={styles.cardTitulo}>
+            <Ionicons name="star" size={18} color="#7C3AED" /> Progreso de nivel
+          </Text>
+          <Text style={styles.nivelPasoText}>
+            Nivel {user?.nivel} → {user?.nivel! + 1}
+          </Text>
         </View>
+
         <View style={styles.barraFondo}>
           <View
             style={[styles.barraProgreso, { width: `${progresoNivel}%` }]}
           />
         </View>
-        <Text style={styles.xpFaltante}>
-          {xpParaSiguienteNivel - (user?.xp ?? 0)} XP para el siguiente nivel
-        </Text>
-      </View>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            marginBottom: 20,
+          }}
+        >
+          <Text style={styles.xpTexto}>
+            {user?.xp} / {xpParaSiguienteNivel} XP
+          </Text>
+        </View>
 
-      {/* Stats */}
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumero}>
-            {estadisticas?.misiones.completadas ?? 0}
-          </Text>
-          <Text style={styles.statLabel}>Misiones{"\n"}completadas</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumero}>
-            {estadisticas?.tareas.completadas ?? 0}
-          </Text>
-          <Text style={styles.statLabel}>Tareas{"\n"}completadas</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumero}>
-            {estadisticas?.misiones.racha_dias ?? 0}
-          </Text>
-          <Text style={styles.statLabel}>Días de{"\n"}racha 🔥</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumero}>{promedioEstres}</Text>
-          <Text style={styles.statLabel}>Promedio{"\n"}de estrés</Text>
-        </View>
-      </View>
-
-      {/* Gráfica de estrés */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitulo}>📊 Estrés últimos 7 días</Text>
-        {datosGrafica.length === 0 ? (
-          <View style={styles.graficaVacia}>
-            <Text style={styles.graficaVaciaTexto}>
-              Haz tu primer check-in para ver la gráfica 📈
+        {/* Stats Grid Mini */}
+        <View style={styles.statsMiniGrid}>
+          <View
+            style={[
+              styles.statMiniCard,
+              { backgroundColor: "rgba(124,58,237,0.05)" },
+            ]}
+          >
+            <Text style={[styles.statMiniNum, { color: "#7C3AED" }]}>
+              {user?.xp}
             </Text>
+            <Text style={styles.statMiniLabel}>XP total</Text>
           </View>
-        ) : (
-          <LineChart
-            data={datosGrafica}
-            height={120}
-            spacing={44}
-            color="#7C3AED"
-            thickness={2}
-            startFillColor="#EDE9FE"
-            endFillColor="#F5F3FF"
-            areaChart
-            hideDataPoints={false}
-            dataPointsColor="#7C3AED"
-            maxValue={10}
-            noOfSections={5}
-            yAxisTextStyle={{ color: "#9CA3AF", fontSize: 10 }}
-            xAxisLabelTextStyle={{ color: "#9CA3AF", fontSize: 10 }}
-            hideRules={false}
-            rulesColor="#F3F4F6"
-          />
-        )}
+          <View
+            style={[
+              styles.statMiniCard,
+              { backgroundColor: "rgba(245,158,11,0.05)" },
+            ]}
+          >
+            <Text style={[styles.statMiniNum, { color: "#F59E0B" }]}>
+              {user?.monedas}
+            </Text>
+            <Text style={styles.statMiniLabel}>🪙 Monedas</Text>
+          </View>
+          <View
+            style={[
+              styles.statMiniCard,
+              { backgroundColor: "rgba(16,185,129,0.05)" },
+            ]}
+          >
+            <Text style={[styles.statMiniNum, { color: "#10B981" }]}>
+              {estadisticas?.misiones?.completadas ?? 0}
+            </Text>
+            <Text style={styles.statMiniLabel}>Misiones</Text>
+          </View>
+          <View
+            style={[
+              styles.statMiniCard,
+              { backgroundColor: "rgba(239,68,68,0.05)" },
+            ]}
+          >
+            <Text style={[styles.statMiniNum, { color: "#EF4444" }]}>
+              {estadisticas?.tareas?.completadas ?? 0}
+            </Text>
+            <Text style={styles.statMiniLabel}>Tareas</Text>
+          </View>
+        </View>
       </View>
 
-      {/* Historial de checkins */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitulo}>📅 Historial de check-ins</Text>
-        {grafica.length === 0 ? (
-          <Text style={styles.sinDatos}>Sin check-ins registrados aún</Text>
-        ) : (
-          grafica.map((c, i) => {
-            const color = getColorNivel(c.nivel);
-            return (
-              <View key={i} style={styles.checkinItem}>
-                <View style={[styles.checkinDot, { backgroundColor: color }]} />
-                <Text style={styles.checkinFecha}>{c.fecha}</Text>
-                <View
-                  style={[
-                    styles.checkinBadge,
-                    { backgroundColor: color + "20" },
-                  ]}
-                >
-                  <Text style={[styles.checkinNivel, { color }]}>
-                    Nivel {c.nivel}/10
+      {/* ══ Navegación por Tabs ══ */}
+      <View style={styles.cardTabs}>
+        <View style={styles.tabNavRow}>
+          {(["historial", "logros", "estadisticas"] as const).map((t) => (
+            <Pressable
+              key={t}
+              style={[styles.tabBtn, tabActiva === t && styles.tabBtnActivo]}
+              onPress={() => setTabActiva(t)}
+            >
+              <Text
+                style={[
+                  styles.tabBtnText,
+                  tabActiva === t && styles.tabBtnTextActivo,
+                ]}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* CONTENIDO TABS */}
+        <View style={styles.tabContent}>
+          {/* TAB: HISTORIAL DE ESTRÉS */}
+          {tabActiva === "historial" && (
+            <View>
+              {/* Promedio General */}
+              <View style={styles.promedioBox}>
+                <Ionicons name="trending-up" size={24} color="#7C3AED" />
+                <View style={{ marginLeft: 12 }}>
+                  <Text style={styles.promedioText}>
+                    Promedio semanal:{" "}
+                    <Text style={{ color: "#7C3AED" }}>
+                      {promedioEstres} / 10
+                    </Text>
+                  </Text>
+                  <Text style={styles.promedioSub}>
+                    {totalCheckins7Dias} registros en los últimos 7 días
                   </Text>
                 </View>
               </View>
-            );
-          })
-        )}
-      </View>
 
-      {/* Logros */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitulo}>
-          🏆 Logros ({logrosObtenidos.length}/{totalLogros})
-        </Text>
-        <View style={styles.logrosGrid}>
-          {logrosObtenidos.map((logro) => (
-            <View key={logro.id} style={styles.logroCard}>
-              <Text style={styles.logroEmoji}>{logro.icono}</Text>
-              <Text style={styles.logroTitulo}>{logro.nombre}</Text>
-              <Text style={styles.logroDesc}>{logro.descripcion}</Text>
+              {/* Nueva Gráfica de Barras Dinámica de 7 días */}
+              <View style={styles.graficaWrap}>
+                {Array.from({ length: 7 }).map((_, i) => {
+                  // 1. Calculamos los últimos 7 días dinámicamente
+                  const d = new Date();
+                  d.setDate(d.getDate() - (6 - i));
+
+                  // 2. Formateamos la fecha a "dd/mm"
+                  const diaStr = d.getDate().toString().padStart(2, "0");
+                  const mesStr = (d.getMonth() + 1).toString().padStart(2, "0");
+                  const fechaFormat = `${diaStr}/${mesStr}`;
+
+                  // 3. Buscamos si hay un check-in guardado para este día.
+                  // Aceptamos puntos que vengan como 'dd/mm' o como fecha ISO.
+                  const checkin = grafica.find((g) => {
+                    if (!g?.fecha) return false;
+                    // Si ya viene en formato dd/mm exacto
+                    if (/^\d{2}\/\d{2}$/.test(g.fecha))
+                      return g.fecha === fechaFormat;
+                    // Intentar parsear como ISO/fecha completa
+                    const parsed = new Date(g.fecha);
+                    if (!isNaN(parsed.getTime())) {
+                      const dd = parsed.getDate().toString().padStart(2, "0");
+                      const mm = (parsed.getMonth() + 1)
+                        .toString()
+                        .padStart(2, "0");
+                      return `${dd}/${mm}` === fechaFormat;
+                    }
+                    return false;
+                  });
+                  const nivel = checkin ? checkin.nivel : null;
+
+                  // 4. Sacamos las etiquetas correctas (D, L, M...)
+                  const esHoy = i === 6;
+                  const dias = ["D", "L", "M", "Mi", "J", "V", "S"];
+                  const label = esHoy ? "Hoy" : dias[d.getDay()];
+
+                  // 5. Altura y color
+                  const height = nivel === null ? 8 : (nivel / 10) * 100;
+                  const color =
+                    nivel === null ? "#E5E7EB" : getColorNivel(nivel);
+
+                  return (
+                    <View key={i} style={styles.barCol}>
+                      <Text
+                        style={[
+                          styles.barValor,
+                          esHoy && { color: "#7C3AED", fontWeight: "700" },
+                        ]}
+                      >
+                        {nivel ?? "-"}
+                      </Text>
+                      <View style={styles.barStage}>
+                        <View
+                          style={[
+                            styles.bar,
+                            { height: `${height}%`, backgroundColor: color },
+                            esHoy && styles.barHoy,
+                          ]}
+                        />
+                      </View>
+                      <Text
+                        style={[styles.barLabel, esHoy && styles.barLabelHoy]}
+                      >
+                        {label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Leyenda de la gráfica */}
+              <View style={styles.leyendaRow}>
+                <View style={styles.leyendaItem}>
+                  <View
+                    style={[styles.leyendaDot, { backgroundColor: "#10B981" }]}
+                  />
+                  <Text style={styles.leyendaTexto}>Bajo (1-2)</Text>
+                </View>
+                <View style={styles.leyendaItem}>
+                  <View
+                    style={[styles.leyendaDot, { backgroundColor: "#F59E0B" }]}
+                  />
+                  <Text style={styles.leyendaTexto}>Medio (3-5)</Text>
+                </View>
+                <View style={styles.leyendaItem}>
+                  <View
+                    style={[styles.leyendaDot, { backgroundColor: "#EF4444" }]}
+                  />
+                  <Text style={styles.leyendaTexto}>Alto (6-10)</Text>
+                </View>
+              </View>
+
+              {/* Separador visual */}
+              <View
+                style={{
+                  height: 1,
+                  backgroundColor: "#F3F4F6",
+                  marginVertical: 20,
+                }}
+              />
+
+              {/* Lista de checkins histórica */}
+              {grafica.length > 0 ? (
+                grafica.map((c, i) => (
+                  <View key={i} style={styles.checkinItem}>
+                    <View
+                      style={[
+                        styles.checkinCubo,
+                        { backgroundColor: getColorNivel(c.nivel) + "20" },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.checkinCuboText,
+                          { color: getColorNivel(c.nivel) },
+                        ]}
+                      >
+                        {c.nivel ?? "-"}
+                      </Text>
+                    </View>
+                    <Text style={styles.checkinFecha}>{c.fecha}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>
+                  Aún no hay check-ins registrados.
+                </Text>
+              )}
             </View>
-          ))}
-          {/* Mostrar cuántos faltan */}
-          {totalLogros - logrosObtenidos.length > 0 && (
-            <View style={[styles.logroCard, styles.logroBloqueado]}>
-              <Text style={styles.logroEmoji}>🔒</Text>
-              <Text style={[styles.logroTitulo, styles.logroTextoGris]}>
-                +{totalLogros - logrosObtenidos.length} por desbloquear
+          )}
+
+          {/* TAB: LOGROS */}
+          {tabActiva === "logros" && (
+            <View>
+              <Text style={styles.logrosHeader}>
+                <Text style={{ color: "#7C3AED", fontWeight: "bold" }}>
+                  {logrosObtenidos.length}
+                </Text>{" "}
+                de {totalLogros} logros desbloqueados
               </Text>
-              <Text style={[styles.logroDesc, styles.logroTextoGris]}>
-                Sigue completando misiones
-              </Text>
+              <View style={styles.logrosGrid}>
+                {logrosObtenidos.map((logro) => (
+                  <View key={logro.id} style={styles.logroCard}>
+                    <Text style={styles.logroEmoji}>{logro.icono}</Text>
+                    <Text style={styles.logroTitulo}>{logro.nombre}</Text>
+                    <Text style={styles.logroDesc}>{logro.descripcion}</Text>
+                    {logro.xp_recompensa && (
+                      <Text style={styles.logroXP}>
+                        +{logro.xp_recompensa} XP
+                      </Text>
+                    )}
+                  </View>
+                ))}
+                {/* Logros Bloqueados Placeholder */}
+                {totalLogros - logrosObtenidos.length > 0 && (
+                  <View style={[styles.logroCard, styles.logroBloqueado]}>
+                    <Text style={styles.logroEmoji}>🔒</Text>
+                    <Text style={[styles.logroTitulo, { color: "#9CA3AF" }]}>
+                      +{totalLogros - logrosObtenidos.length} por desbloquear
+                    </Text>
+                    <Text style={styles.logroDesc}>
+                      Sigue completando misiones
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* TAB: ESTADÍSTICAS DETALLADAS */}
+          {tabActiva === "estadisticas" && (
+            <View style={{ gap: 16 }}>
+              {/* Misiones Stat */}
+              <View
+                style={[
+                  styles.statDetailBox,
+                  { backgroundColor: "rgba(124,58,237,0.05)" },
+                ]}
+              >
+                <Text style={styles.statDetailTitle}>
+                  <Ionicons name="flash" size={16} color="#7C3AED" /> Misiones
+                </Text>
+                <View style={styles.statDetailRow}>
+                  <Text style={styles.statDetailL}>Completadas</Text>
+                  <Text style={[styles.statDetailR, { color: "#10B981" }]}>
+                    {estadisticas?.misiones.completadas}
+                  </Text>
+                </View>
+                <View style={styles.statDetailRow}>
+                  <Text style={styles.statDetailL}>Pendientes</Text>
+                  <Text style={[styles.statDetailR, { color: "#F59E0B" }]}>
+                    {estadisticas?.misiones.pendientes}
+                  </Text>
+                </View>
+                <View style={styles.statDetailRow}>
+                  <Text style={styles.statDetailL}>Racha actual</Text>
+                  <Text style={[styles.statDetailR, { color: "#EF4444" }]}>
+                    🔥 {estadisticas?.misiones.racha_dias} días
+                  </Text>
+                </View>
+              </View>
+
+              {/* Tareas Stat */}
+              <View
+                style={[
+                  styles.statDetailBox,
+                  { backgroundColor: "rgba(16,185,129,0.05)" },
+                ]}
+              >
+                <Text style={styles.statDetailTitle}>
+                  <Ionicons name="calendar" size={16} color="#10B981" /> Agenda
+                </Text>
+                <View style={styles.statDetailRow}>
+                  <Text style={styles.statDetailL}>Completadas</Text>
+                  <Text style={[styles.statDetailR, { color: "#10B981" }]}>
+                    {estadisticas?.tareas.completadas}
+                  </Text>
+                </View>
+                <View style={styles.statDetailRow}>
+                  <Text style={styles.statDetailL}>Pendientes</Text>
+                  <Text style={[styles.statDetailR, { color: "#F59E0B" }]}>
+                    {estadisticas?.tareas.pendientes}
+                  </Text>
+                </View>
+                <View style={styles.statDetailRow}>
+                  <Text style={styles.statDetailL}>Vencidas</Text>
+                  <Text style={[styles.statDetailR, { color: "#EF4444" }]}>
+                    {estadisticas?.tareas.vencidas}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Bienestar Stat */}
+              <View
+                style={[
+                  styles.statDetailBox,
+                  { backgroundColor: "rgba(239,68,68,0.05)" },
+                ]}
+              >
+                <Text style={styles.statDetailTitle}>
+                  <Ionicons name="happy" size={16} color="#EF4444" /> Bienestar
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-around",
+                    marginTop: 10,
+                  }}
+                >
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={[styles.statMiniNum, { color: "#EF4444" }]}>
+                      {promedioEstres}
+                    </Text>
+                    <Text
+                      style={[styles.statMiniLabel, { textAlign: "center" }]}
+                    >
+                      Promedio{"\n"}semana
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={[styles.statMiniNum, { color: "#10B981" }]}>
+                      {totalCheckins7Dias}
+                    </Text>
+                    <Text
+                      style={[styles.statMiniLabel, { textAlign: "center" }]}
+                    >
+                      Total{"\n"}registros
+                    </Text>
+                  </View>
+                </View>
+              </View>
             </View>
           )}
         </View>
       </View>
 
-      {/* Cerrar sesión */}
-      <Pressable style={styles.botonCerrar} onPress={cerrarSesion}>
-        <Ionicons name="log-out-outline" size={20} color="#EF4444" />
-        <Text style={styles.botonCerrarTexto}>Cerrar sesión</Text>
-      </Pressable>
+      {/* ══ Zona Peligrosa (Cuenta) ══ */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitulo}>
+          <Ionicons name="settings" size={18} color="#9CA3AF" /> Cuenta
+        </Text>
+        <Pressable style={styles.botonCerrar} onPress={cerrarSesion}>
+          <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+          <Text style={styles.botonCerrarTexto}>Cerrar sesión</Text>
+        </Pressable>
+      </View>
 
-      {/* Modal editar perfil */}
+      {/* ══ Modal editar perfil ══ */}
       <Modal visible={modalEditar} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitulo}>Editar perfil ✏️</Text>
-
             <Text style={styles.inputLabel}>Nombre</Text>
             <TextInput
               style={styles.input}
@@ -348,7 +664,6 @@ export default function PerfilScreen() {
               placeholder="Tu nombre"
               maxLength={40}
             />
-
             <Text style={styles.inputLabel}>Semestre</Text>
             <TextInput
               style={styles.input}
@@ -358,7 +673,6 @@ export default function PerfilScreen() {
               keyboardType="numeric"
               maxLength={2}
             />
-
             <View style={styles.modalBotones}>
               <Pressable
                 style={styles.botonCancelar}
@@ -375,7 +689,7 @@ export default function PerfilScreen() {
                 disabled={guardandoPerfil}
               >
                 <Text style={styles.botonGuardarTexto}>
-                  {guardandoPerfil ? "Guardando..." : "Guardar"}
+                  {guardandoPerfil ? "Guardando..." : "Guardar cambios"}
                 </Text>
               </Pressable>
             </View>
@@ -386,193 +700,322 @@ export default function PerfilScreen() {
   );
 }
 
+// ── Estilos ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F9FAFB",
     padding: 16,
     paddingTop: 48,
   },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
-  headerCard: {
-    backgroundColor: "#7C3AED",
-    borderRadius: 20,
-    padding: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
+  screenTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#111827",
     marginBottom: 16,
   },
-  avatarCirculo: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    justifyContent: "center",
+
+  // Header bg-ink
+  headerDark: {
+    backgroundColor: "#111827",
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  avatarWrap: { position: "relative", marginRight: 16 },
+  avatarText: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: "#7C3AED",
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "bold",
+    textAlign: "center",
+    lineHeight: 64,
+    overflow: "hidden",
+  },
+  avatarBadge: {
+    position: "absolute",
+    bottom: -4,
+    right: -4,
+    backgroundColor: "#10B981",
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: "#111827",
     alignItems: "center",
+    justifyContent: "center",
   },
-  avatarLetra: { fontSize: 26, fontWeight: "bold", color: "#fff" },
   headerInfo: { flex: 1 },
-  nombreTexto: { fontSize: 18, fontWeight: "bold", color: "#fff" },
-  semestreTexto: { fontSize: 13, color: "#DDD6FE", marginTop: 2 },
-  emailTexto: { fontSize: 11, color: "#C4B5FD", marginTop: 2 },
-  editarBtn: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 10,
-    padding: 8,
+  nombreTexto: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 4,
   },
+  subTexto: { fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 2 },
+  editBtn: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    padding: 10,
+    borderRadius: 12,
+  },
+  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  tagText: { fontSize: 11, fontWeight: "700" },
+
   card: {
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
     elevation: 2,
   },
   cardTitulo: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#1E1B4B",
+    color: "#111827",
     marginBottom: 12,
   },
+
+  // Nivel
   nivelRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  xpTexto: { fontSize: 15, fontWeight: "700", color: "#7C3AED" },
+  nivelPasoText: { fontSize: 13, color: "#9CA3AF" },
   barraFondo: {
-    height: 10,
-    backgroundColor: "#EDE9FE",
-    borderRadius: 10,
+    height: 12,
+    backgroundColor: "rgba(124,58,237,0.1)",
+    borderRadius: 6,
     overflow: "hidden",
     marginBottom: 6,
   },
   barraProgreso: {
     height: "100%",
     backgroundColor: "#7C3AED",
-    borderRadius: 10,
+    borderRadius: 6,
   },
-  xpFaltante: { fontSize: 12, color: "#9CA3AF" },
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
-  statCard: {
+  xpTexto: { fontSize: 12, color: "#9CA3AF" },
+
+  // Grid mini stats
+  statsMiniGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statMiniCard: {
     flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 14,
+    minWidth: "22%",
+    borderRadius: 16,
     padding: 12,
     alignItems: "center",
+  },
+  statMiniNum: { fontSize: 20, fontWeight: "bold" },
+  statMiniLabel: { fontSize: 11, color: "#6B7280", marginTop: 4 },
+
+  // Tabs
+  cardTabs: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
     shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
+    overflow: "hidden",
   },
-  statNumero: { fontSize: 20, fontWeight: "bold", color: "#7C3AED" },
-  statLabel: {
-    fontSize: 10,
-    color: "#9CA3AF",
-    marginTop: 2,
-    textAlign: "center",
-  },
-  graficaVacia: { height: 100, justifyContent: "center", alignItems: "center" },
-  graficaVaciaTexto: { color: "#9CA3AF", fontSize: 13, textAlign: "center" },
-  checkinItem: {
+  tabNavRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
-  checkinDot: { width: 10, height: 10, borderRadius: 5 },
-  checkinFecha: { flex: 1, fontSize: 13, color: "#6B7280" },
-  checkinBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
-  checkinNivel: { fontSize: 12, fontWeight: "700" },
-  sinDatos: {
-    color: "#9CA3AF",
-    fontSize: 13,
-    textAlign: "center",
-    paddingVertical: 12,
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
   },
+  tabBtnActivo: { borderBottomColor: "#7C3AED" },
+  tabBtnText: { fontSize: 13, fontWeight: "600", color: "#9CA3AF" },
+  tabBtnTextActivo: { color: "#7C3AED" },
+  tabContent: { padding: 20 },
+
+  // Tab: Historial
+  promedioBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124,58,237,0.05)",
+    padding: 12,
+    borderRadius: 12,
+    marginVertical: 16,
+  },
+  promedioText: { fontSize: 14, fontWeight: "600", color: "#111827" },
+  promedioSub: { fontSize: 12, color: "#9CA3AF", marginTop: 2 },
+  checkinItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  checkinCubo: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkinCuboText: { fontSize: 14, fontWeight: "bold" },
+  checkinFecha: { fontSize: 14, color: "#4B5563", fontWeight: "500" },
+  emptyText: {
+    color: "#9CA3AF",
+    fontSize: 14,
+    textAlign: "center",
+    paddingVertical: 20,
+  },
+
+  // --- Estilos para la Nueva Gráfica de Barras ---
+  graficaWrap: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    height: 150,
+    gap: 8,
+    marginTop: 10,
+  },
+  barCol: { flex: 1, alignItems: "center", gap: 4 },
+  barValor: { fontSize: 12, fontWeight: "600", color: "#6B7280" },
+  barStage: { width: "100%", flex: 1, justifyContent: "flex-end" },
+  bar: { width: "100%", borderRadius: 6, minHeight: 8 },
+  barHoy: { borderWidth: 2, borderColor: "#7C3AED" },
+  barLabel: { fontSize: 11, color: "#9CA3AF" },
+  barLabelHoy: { color: "#7C3AED", fontWeight: "700" },
+
+  // --- Estilos para la leyenda ---
+  leyendaRow: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 20,
+    justifyContent: "center",
+  },
+  leyendaItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  leyendaDot: { width: 10, height: 10, borderRadius: 3 },
+  leyendaTexto: { fontSize: 12, color: "#6B7280", fontWeight: "500" },
+
+  // Tab: Logros
+  logrosHeader: { fontSize: 13, color: "#6B7280", marginBottom: 16 },
   logrosGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   logroCard: {
-    width: "47%",
-    backgroundColor: "#F5F3FF",
-    borderRadius: 14,
-    padding: 12,
+    width: "48%",
+    backgroundColor: "rgba(124,58,237,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.1)",
+    borderRadius: 16,
+    padding: 16,
     alignItems: "center",
-    gap: 4,
   },
-  logroBloqueado: { backgroundColor: "#F9FAFB", opacity: 0.6 },
-  logroEmoji: { fontSize: 28, marginBottom: 4 },
+  logroBloqueado: { backgroundColor: "#F9FAFB", borderColor: "#F3F4F6" },
+  logroEmoji: { fontSize: 32, marginBottom: 8 },
   logroTitulo: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1E1B4B",
+    color: "#111827",
     textAlign: "center",
+    marginBottom: 4,
   },
   logroDesc: { fontSize: 11, color: "#6B7280", textAlign: "center" },
-  logroTextoGris: { color: "#9CA3AF" },
+  logroXP: { fontSize: 11, color: "#7C3AED", fontWeight: "700", marginTop: 6 },
+
+  // Tab: Estadisticas
+  statDetailBox: { borderRadius: 16, padding: 16 },
+  statDetailTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  statDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  statDetailL: { fontSize: 13, color: "#6B7280" },
+  statDetailR: { fontSize: 14, fontWeight: "bold", color: "#111827" },
+
+  // Zona peligrosa
   botonCerrar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#FEE2E2",
+    backgroundColor: "rgba(239,68,68,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(239,68,68,0.2)",
     borderRadius: 14,
     padding: 14,
-    marginTop: 4,
   },
-  botonCerrarTexto: { color: "#EF4444", fontWeight: "700", fontSize: 15 },
+  botonCerrarTexto: { color: "#EF4444", fontWeight: "700", fontSize: 14 },
+
+  // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
   modalCard: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     padding: 24,
     paddingBottom: 40,
   },
   modalTitulo: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#1E1B4B",
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#111827",
     marginBottom: 20,
   },
   inputLabel: {
     fontSize: 13,
-    fontWeight: "600",
-    color: "#6B7280",
-    marginBottom: 6,
+    fontWeight: "700",
+    color: "#4B5563",
+    marginBottom: 8,
   },
   input: {
-    backgroundColor: "#F5F3FF",
-    borderRadius: 10,
-    padding: 12,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
+    padding: 14,
     fontSize: 15,
-    color: "#1E1B4B",
+    color: "#111827",
     marginBottom: 16,
   },
-  modalBotones: { flexDirection: "row", gap: 12 },
+  modalBotones: { flexDirection: "row", gap: 12, marginTop: 10 },
   botonCancelar: {
     flex: 1,
-    padding: 14,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 16,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
   },
-  botonCancelarTexto: { color: "#6B7280", fontWeight: "600" },
+  botonCancelarTexto: { color: "#4B5563", fontWeight: "700", fontSize: 15 },
   botonGuardar: {
     flex: 1,
-    padding: 14,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 16,
     backgroundColor: "#7C3AED",
     alignItems: "center",
   },
-  botonGuardarTexto: { color: "#fff", fontWeight: "700" },
+  botonGuardarTexto: { color: "#fff", fontWeight: "700", fontSize: 15 },
 });
