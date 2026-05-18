@@ -1,6 +1,6 @@
 import Slider from "@react-native-community/slider";
-import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -92,9 +92,11 @@ export default function HomeScreen() {
     checkinData ? checkinData.nivel_estres : nivelEstres,
   );
 
-  useEffect(() => {
-    cargarDatos();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      cargarDatos();
+    }, []),
+  );
 
   const cargarDatos = async () => {
     try {

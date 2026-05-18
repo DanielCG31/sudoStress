@@ -32,7 +32,7 @@ export default function LoginScreen() {
     try {
       const data = await login(email.trim(), password);
       if (data.token) {
-        router.replace("/(tabs)");
+        router.replace("/");
       } else {
         const mensaje =
           data.errors?.email?.[0] ??

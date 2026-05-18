@@ -70,7 +70,7 @@ export default function RegisterScreen() {
       });
       if (data.token) {
         await login(email.trim(), password);
-        router.replace("/(tabs)");
+        router.replace("/(tabs)" as any);
       } else {
         const errorData = data as {
           errors?: { email?: string[]; password?: string[]; name?: string[] };

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -89,9 +89,11 @@ export default function PerfilScreen() {
 
   const router = useRouter();
 
-  useEffect(() => {
-    cargarDatos();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      cargarDatos();
+    }, []),
+  );
 
   const cargarDatos = async () => {
     try {
@@ -165,7 +167,7 @@ export default function PerfilScreen() {
         style: "destructive",
         onPress: async () => {
           await logout();
-          router.replace("/(auth)/login");
+          router.replace("/(auth)/login"); // Redirige al inicio o login después de cerrar sesión
         },
       },
     ]);
