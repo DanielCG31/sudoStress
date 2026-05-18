@@ -92,6 +92,16 @@ const getEstadoEstilos = (estado: string) => {
   }
 };
 
+const parseFechaLimite = (fechaLimite: string | null) => {
+  if (!fechaLimite) return null;
+
+  const isoMatch = fechaLimite.match(/^(\d{4}-\d{2}-\d{2})/);
+  const baseFecha = isoMatch ? `${isoMatch[1]}T12:00:00` : fechaLimite;
+  const fechaParseada = new Date(baseFecha);
+
+  return Number.isNaN(fechaParseada.getTime()) ? null : fechaParseada;
+};
+
 export default function AgendaScreen() {
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -148,11 +158,7 @@ export default function AgendaScreen() {
     setDescripcion(tarea.descripcion ?? "");
     setCategoria(tarea.categoria);
     setPrioridad(tarea.prioridad);
-    setFecha(
-      tarea.fecha_limite
-        ? new Date(tarea.fecha_limite + "T12:00:00")
-        : new Date(),
-    );
+    setFecha(parseFechaLimite(tarea.fecha_limite) ?? new Date());
     setModalFormVisible(true);
   };
 
@@ -274,11 +280,11 @@ export default function AgendaScreen() {
 
   const tareasFiltradas = tareas
     .filter((t) => (filtro === "todas" ? true : t.estado === filtro))
-    .sort(
-      (a, b) =>
-        new Date(a.fecha_limite ?? "").getTime() -
-        new Date(b.fecha_limite ?? "").getTime(),
-    );
+    .sort((a, b) => {
+      const fechaA = parseFechaLimite(a.fecha_limite)?.getTime() ?? 0;
+      const fechaB = parseFechaLimite(b.fecha_limite)?.getTime() ?? 0;
+      return fechaA - fechaB;
+    });
 
   if (cargando) {
     return (
@@ -413,13 +419,14 @@ export default function AgendaScreen() {
                   {tarea.fecha_limite && (
                     <Text style={styles.fechaTexto}>
                       📆{" "}
-                      {new Date(
-                        tarea.fecha_limite + "T12:00:00",
-                      ).toLocaleDateString("es-MX", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                      })}
+                      {parseFechaLimite(tarea.fecha_limite)?.toLocaleDateString(
+                        "es-MX",
+                        {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        },
+                      ) ?? "Sin fecha"}
                     </Text>
                   )}
                   {tarea.recomendacion && (
@@ -712,7 +719,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F9FAFB",
     padding: 16,
-    paddingTop: 5,
+    paddingTop: 0,
   },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
 
