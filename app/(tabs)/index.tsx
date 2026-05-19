@@ -1,3 +1,4 @@
+import AchievementBubble from "@/components/AchievementBubble";
 import Slider from "@react-native-community/slider";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -16,7 +17,11 @@ import {
   registrarCheckin,
 } from "../../lib/services/checkinService";
 import { obtenerMisiones } from "../../lib/services/misionService";
-import { obtenerHistorialEstres } from "../../lib/services/perfilService";
+import {
+  obtenerHistorialEstres,
+  obtenerPerfil,
+  verificarLogros,
+} from "../../lib/services/perfilService";
 import { obtenerTareas } from "../../lib/services/tareaService";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -87,6 +92,9 @@ export default function HomeScreen() {
   const [guardando, setGuardando] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [comentario, setComentario] = useState("");
+  const [logrosNotificacion, setLogrosNotificacion] = useState<
+    { nombre?: string; titulo?: string; xp_recompensa?: number }[]
+  >([]);
 
   const estadoEstres = getEstres(
     checkinData ? checkinData.nivel_estres : nivelEstres,
@@ -148,6 +156,38 @@ export default function HomeScreen() {
 
       if (data.checkin) setCheckinData(data.checkin);
       if (data.misiones) setMisionesIA(data.misiones.slice(0, 3));
+
+      if (data.usuario && user) {
+        useAuthStore.setState({
+          user: {
+            ...user,
+            xp: data.usuario.xp,
+            monedas: data.usuario.monedas,
+            nivel: data.usuario.nivel,
+          },
+        });
+      }
+
+      const logrosRes = await verificarLogros();
+      const nuevosLogros = Array.isArray(logrosRes?.logros_nuevos)
+        ? logrosRes.logros_nuevos
+        : [];
+      if (logrosRes?.hay_nuevos && nuevosLogros.length > 0) {
+        setLogrosNotificacion(nuevosLogros);
+
+        const perfilRes = await obtenerPerfil();
+        if (perfilRes?.perfil && user) {
+          useAuthStore.setState({
+            user: {
+              ...user,
+              xp: perfilRes.perfil.xp,
+              monedas: perfilRes.perfil.monedas,
+              nivel: perfilRes.perfil.nivel,
+            },
+          });
+        }
+      }
+
       const consejoNuevo =
         extraerContenidoConsejo(data.consejo) ??
         extraerContenidoConsejo((await obtenerUltimoConsejo()).consejo);
@@ -183,6 +223,12 @@ export default function HomeScreen() {
       contentContainerStyle={{ paddingBottom: 36 }}
       showsVerticalScrollIndicator={false}
     >
+      <AchievementBubble
+        visible={logrosNotificacion.length > 0}
+        achievements={logrosNotificacion}
+        onDismiss={() => setLogrosNotificacion([])}
+      />
+
       {/* ══ Header ══ */}
       <View style={s.header}>
         {/* Contenedor izquierdo: flex 1 obliga al texto a respetar el límite */}

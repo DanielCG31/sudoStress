@@ -68,6 +68,53 @@ const getColorNivel = (nivel: number | null) => {
   return "#EF4444"; // Rose
 };
 
+// Formatea fecha mostrando día, mes (abreviado en español), año y hora.
+// Ejemplo: "18 may 2026, 14:32"
+const formatFecha = (fechaRaw?: string | null) => {
+  if (!fechaRaw) return "—";
+
+  try {
+    const mesesShort = [
+      "ene",
+      "feb",
+      "mar",
+      "abr",
+      "may",
+      "jun",
+      "jul",
+      "ago",
+      "sep",
+      "oct",
+      "nov",
+      "dic",
+    ];
+
+    const pad = (n: number) => n.toString().padStart(2, "0");
+
+    // Si viene en formato dd/mm sin año, añadimos año actual y hora 00:00
+    if (/^\d{2}\/\d{2}$/.test(fechaRaw)) {
+      const [dStr, mStr] = fechaRaw.split("/");
+      const monthIndex = parseInt(mStr, 10) - 1;
+      const yearNow = new Date().getFullYear();
+      const mesNombre = mesesShort[Math.max(0, Math.min(11, monthIndex))];
+      return `${dStr} ${mesNombre} ${yearNow}, 00:00`;
+    }
+
+    const d = new Date(fechaRaw);
+    if (isNaN(d.getTime())) return fechaRaw;
+
+    const dd = pad(d.getDate());
+    const mesNombre = mesesShort[d.getMonth()];
+    const yyyy = d.getFullYear();
+    const hh = pad(d.getHours());
+    const mm = pad(d.getMinutes());
+
+    return `${dd} ${mesNombre} ${yyyy}, ${hh}:${mm}`;
+  } catch (e) {
+    return fechaRaw;
+  }
+};
+
 export default function PerfilScreen() {
   const { user, logout } = useAuthStore();
   const [estadisticas, setEstadisticas] = useState<Estadisticas | null>(null);
@@ -178,6 +225,34 @@ export default function PerfilScreen() {
   const progresoCalculado = user ? (user.xp / xpParaSiguienteNivel) * 100 : 0;
   const progresoNivel = Math.min(100, Math.max(0, progresoCalculado));
   const rachaActual = estadisticas?.misiones?.racha_dias ?? 0;
+
+  // Construye los últimos 7 días y busca si hay un checkin para cada uno.
+  const last7Checkins = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+
+    const diaStr = d.getDate().toString().padStart(2, "0");
+    const mesStr = (d.getMonth() + 1).toString().padStart(2, "0");
+    const fechaFormat = `${diaStr}/${mesStr}`;
+
+    const checkin = grafica.find((g) => {
+      if (!g?.fecha) return false;
+      if (/^\d{2}\/\d{2}$/.test(g.fecha)) return g.fecha === fechaFormat;
+      const parsed = new Date(g.fecha);
+      if (!isNaN(parsed.getTime())) {
+        const dd = parsed.getDate().toString().padStart(2, "0");
+        const mm = (parsed.getMonth() + 1).toString().padStart(2, "0");
+        return `${dd}/${mm}` === fechaFormat;
+      }
+      return false;
+    });
+
+    return {
+      dateObj: d,
+      nivel: checkin ? checkin.nivel : null,
+      fechaRaw: checkin?.fecha ?? null,
+    };
+  });
 
   if (cargando) {
     return (
@@ -467,33 +542,36 @@ export default function PerfilScreen() {
                 }}
               />
 
-              {/* Lista de checkins histórica */}
-              {grafica.length > 0 ? (
-                grafica.map((c, i) => (
-                  <View key={i} style={styles.checkinItem}>
-                    <View
+              {/* Lista de checkins histórica (muestra los últimos 7 días, incluso si no hay datos) */}
+              {last7Checkins.map((c, i) => (
+                <View key={i} style={styles.checkinItem}>
+                  <View
+                    style={[
+                      styles.checkinCubo,
+                      { backgroundColor: getColorNivel(c.nivel) + "20" },
+                    ]}
+                  >
+                    <Text
                       style={[
-                        styles.checkinCubo,
-                        { backgroundColor: getColorNivel(c.nivel) + "20" },
+                        styles.checkinCuboText,
+                        {
+                          color:
+                            c.nivel !== null
+                              ? getColorNivel(c.nivel)
+                              : "#9CA3AF",
+                        },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.checkinCuboText,
-                          { color: getColorNivel(c.nivel) },
-                        ]}
-                      >
-                        {c.nivel ?? "-"}
-                      </Text>
-                    </View>
-                    <Text style={styles.checkinFecha}>{c.fecha}</Text>
+                      {c.nivel !== null ? c.nivel : "-"}
+                    </Text>
                   </View>
-                ))
-              ) : (
-                <Text style={styles.emptyText}>
-                  Aún no hay check-ins registrados.
-                </Text>
-              )}
+                  <Text style={styles.checkinFecha}>
+                    {c.nivel !== null && c.fechaRaw
+                      ? formatFecha(c.fechaRaw)
+                      : "Sin datos"}
+                  </Text>
+                </View>
+              ))}
             </View>
           )}
 

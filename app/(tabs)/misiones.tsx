@@ -1,3 +1,4 @@
+import AchievementBubble from "@/components/AchievementBubble";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
@@ -13,7 +14,10 @@ import {
   obtenerEstadisticas,
   obtenerMisiones,
 } from "../../lib/services/misionService";
-import { verificarLogros } from "../../lib/services/perfilService";
+import {
+  obtenerPerfil,
+  verificarLogros,
+} from "../../lib/services/perfilService";
 import { useAuthStore } from "../../store/useAuthStore";
 
 // ── Tipos ───────────────────────────────────────────────────────────────
@@ -61,6 +65,9 @@ export default function MisionesScreen() {
   const [misiones, setMisiones] = useState<Mision[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [logrosNotificacion, setLogrosNotificacion] = useState<
+    { nombre?: string; titulo?: string; xp_recompensa?: number }[]
+  >([]);
   const [filtro, setFiltro] = useState<
     "todas" | "pendiente" | "en_progreso" | "completada"
   >("todas");
@@ -116,7 +123,28 @@ export default function MisionesScreen() {
             },
           });
         }
-        await verificarLogros();
+
+        const logrosRes = await verificarLogros();
+        const nuevosLogros = Array.isArray(logrosRes?.logros_nuevos)
+          ? logrosRes.logros_nuevos
+          : [];
+
+        if (logrosRes?.hay_nuevos && nuevosLogros.length > 0) {
+          setLogrosNotificacion(nuevosLogros);
+
+          const perfilRes = await obtenerPerfil();
+          if (perfilRes?.perfil && user) {
+            useAuthStore.setState({
+              user: {
+                ...user,
+                xp: perfilRes.perfil.xp,
+                monedas: perfilRes.perfil.monedas,
+                nivel: perfilRes.perfil.nivel,
+              },
+            });
+          }
+        }
+
         const statsRes = await obtenerEstadisticas();
         setStats(statsRes);
       }
@@ -153,6 +181,12 @@ export default function MisionesScreen() {
 
   return (
     <View style={styles.container}>
+      <AchievementBubble
+        visible={logrosNotificacion.length > 0}
+        achievements={logrosNotificacion}
+        onDismiss={() => setLogrosNotificacion([])}
+      />
+
       {/* ══ Header ══ */}
       <View style={styles.header}>
         <Text style={styles.titulo}>Misiones</Text>

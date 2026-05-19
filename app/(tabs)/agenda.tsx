@@ -1,3 +1,4 @@
+import AchievementBubble from "@/components/AchievementBubble";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useEffect, useState } from "react";
@@ -12,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { verificarLogros } from "../../lib/services/perfilService";
 import {
   actualizarTarea,
   crearTarea,
@@ -121,6 +123,9 @@ export default function AgendaScreen() {
   const [fecha, setFecha] = useState(new Date());
   const [guardando, setGuardando] = useState(false);
   const [recalculandoIA, setRecalculandoIA] = useState(false);
+  const [logrosNotificacion, setLogrosNotificacion] = useState<
+    { nombre?: string; titulo?: string; xp_recompensa?: number }[]
+  >([]);
 
   // Filtros
   const [filtro, setFiltro] = useState<
@@ -233,6 +238,17 @@ export default function AgendaScreen() {
           t.id === tarea.id ? { ...t, estado: nuevoEstado } : t,
         ),
       );
+
+      if (nuevoEstado === "completada") {
+        const logrosRes = await verificarLogros();
+        const nuevosLogros = Array.isArray(logrosRes?.logros_nuevos)
+          ? logrosRes.logros_nuevos
+          : [];
+
+        if (logrosRes?.hay_nuevos && nuevosLogros.length > 0) {
+          setLogrosNotificacion(nuevosLogros);
+        }
+      }
     } catch (e) {
       console.error(e);
     }
@@ -296,18 +312,26 @@ export default function AgendaScreen() {
 
   return (
     <View style={styles.container}>
+      <AchievementBubble
+        visible={logrosNotificacion.length > 0}
+        achievements={logrosNotificacion}
+        onDismiss={() => setLogrosNotificacion([])}
+      />
+
       {/* ══ Header ══ */}
       <View style={styles.header}>
         <View>
           <Text style={styles.titulo}>Agenda</Text>
           <Text style={styles.subtitulo}>Gestiona tus tareas con IA</Text>
         </View>
-        <Pressable style={styles.botonAgregar} onPress={abrirModalCrear}>
-          <Ionicons name="add" size={20} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "600", marginLeft: 4 }}>
-            Nueva tarea
-          </Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Pressable style={styles.botonAgregar} onPress={abrirModalCrear}>
+            <Ionicons name="add" size={20} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "600", marginLeft: 4 }}>
+              Nueva tarea
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* ══ Filtros ══ */}
@@ -739,6 +763,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
+  },
+  debugBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#F59E0B",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
   },
 
   // Filtros
